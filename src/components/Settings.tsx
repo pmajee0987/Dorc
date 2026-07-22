@@ -1,0 +1,1243 @@
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
+import { 
+  User, Shield, Key, Eye, EyeOff, Sliders, Volume2, AppWindow, 
+  Info, ExternalLink, Moon, Sparkles, BookOpen, Clock, Flame, LogOut, Check,
+  School, Award, Globe, MapPin, CheckCircle, Lock, Ban, UserMinus,
+  Mic, Camera, Bell, Image as ImageIcon, HardDrive, Phone, Users, MessageSquare, Bluetooth, Activity, Wifi, Zap, Cpu, Layers, RefreshCw
+} from 'lucide-react';
+import { parseCurrentUITree, openAccessibilitySettings, MappedUITree } from '../lib/screenReading';
+import { db } from '../firebase';
+import { syncUserProfile } from '../lib/profileSync';
+import { permissionManager } from '../lib/permissionManager';
+import { doc, setDoc, getDoc, updateDoc, arrayRemove, collection, query, where, getDocs } from 'firebase/firestore';
+import { SearchableSelect } from './SearchableSelect';
+import { useLiveSettings } from '../lib/useLiveSettings';
+import { useLocationData } from '../lib/useLocationData';
+import { 
+  WBCHSE_SCIENCE_LANG1, WBCHSE_SCIENCE_LANG2, WBCHSE_SCIENCE_OPTIONAL,
+  WBCHSE_ARTS_LANG1, WBCHSE_ARTS_LANG2, WBCHSE_ARTS_ELECTIVE,
+  WBCHSE_COMMERCE_CHOOSE_ONE, WBCHSE_COMMERCE_ELECTIVE
+} from '../lib/subjectData';
+
+interface UserProfileSettingsProps {
+  currentUser: any;
+  userProfile: any;
+  onUpdateProfile: (updatedData: any) => void;
+  theme: any;
+  currentTheme: string;
+  setCurrentTheme: (t: any) => void;
+  onLogout: () => void;
+  addSystemLog: (log: string) => void;
+  isAdmin: boolean;
+  onNavigateHome?: () => void;
+}
+
+const SETTINGS_PERMISSIONS = [
+  { id: 'INTERNET', name: 'INTERNET', description: 'Enables real-time cloud data sync & Gemini Brain APIs', icon: Globe, category: 'core' },
+  { id: 'ACCESS_NETWORK_STATE', name: 'ACCESS_NETWORK_STATE', description: 'Monitors internet connection health & offline queues', icon: Wifi, category: 'core' },
+  { id: 'POST_NOTIFICATIONS', name: 'POST_NOTIFICATIONS', description: 'Sends study reminders, routine alerts, and live messages', icon: Bell, category: 'core' },
+  { id: 'VIBRATE', name: 'VIBRATE', description: 'Provides tactile haptic feedback during voice and UI actions', icon: Zap, category: 'core' },
+  { id: 'WAKE_LOCK', name: 'WAKE_LOCK', description: 'Keeps screen awake during active hands-free conversations', icon: Lock, category: 'core' },
+
+  // Communication
+  { id: 'RECORD_AUDIO', name: 'RECORD_AUDIO', description: 'Captures voice queries for Speech To Text & Wake Word detection', icon: Mic, category: 'communication' },
+  { id: 'CALL_PHONE', name: 'CALL_PHONE', description: 'Allows placing phone calls using voice AI commands', icon: Phone, category: 'communication', restricted: true },
+  { id: 'READ_CONTACTS', name: 'READ_CONTACTS', description: 'Identifies favourite contacts for quick voice call & messaging', icon: Users, category: 'communication' },
+  { id: 'WRITE_CONTACTS', name: 'WRITE_CONTACTS', description: 'Saves new contacts directly via natural voice instructions', icon: Users, category: 'communication' },
+  { id: 'READ_PHONE_NUMBERS', name: 'READ_PHONE_NUMBERS', description: 'Reads active phone configuration for account profile verification', icon: Phone, category: 'communication', restricted: true },
+  { id: 'SEND_SMS', name: 'SEND_SMS', description: 'Sends text messages hands-free using Gemini voice logic', icon: MessageSquare, category: 'communication', restricted: true },
+  { id: 'READ_SMS', name: 'READ_SMS', description: 'Reads incoming study updates, task lists, and verification text', icon: MessageSquare, category: 'communication', restricted: true },
+  { id: 'RECEIVE_SMS', name: 'RECEIVE_SMS', description: 'Intercepts incoming messages to prompt you hands-free via AI', icon: MessageSquare, category: 'communication', restricted: true },
+
+  // Media / Storage
+  { id: 'CAMERA', name: 'CAMERA', description: 'Launches viewfinder for scanning books, study notes, or story images', icon: Camera, category: 'media' },
+  { id: 'READ_MEDIA_IMAGES', name: 'READ_MEDIA_IMAGES', description: 'Displays saved photos in custom gallery and message attachments', icon: ImageIcon, category: 'media' },
+  { id: 'READ_MEDIA_VIDEO', name: 'READ_MEDIA_VIDEO', description: 'Loads reference school and course videos directly in learning hub', icon: ImageIcon, category: 'media' },
+  { id: 'READ_MEDIA_AUDIO', name: 'READ_MEDIA_AUDIO', description: 'Reads and manages vocal recordings and study podcasts', icon: ImageIcon, category: 'media' },
+  { id: 'READ_EXTERNAL_STORAGE', name: 'READ_EXTERNAL_STORAGE', description: 'Reads PDF books, task files, and local documents securely', icon: HardDrive, category: 'media' },
+
+  // Hardware Settings
+  { id: 'ACCESS_FINE_LOCATION', name: 'ACCESS_FINE_LOCATION', description: 'Determines pinpoint GPS location for maps and route navigation', icon: MapPin, category: 'hardware' },
+  { id: 'ACCESS_COARSE_LOCATION', name: 'ACCESS_COARSE_LOCATION', description: 'Loads localized weather, language presets, and region info', icon: MapPin, category: 'hardware' },
+  { id: 'BLUETOOTH_CONNECT', name: 'BLUETOOTH_CONNECT', description: 'Interfaces with wireless headset/speaker for Text To Speech audio', icon: Bluetooth, category: 'hardware' },
+  { id: 'BLUETOOTH_SCAN', name: 'BLUETOOTH_SCAN', description: 'Discovers bluetooth earphones, wearables, or smart peripherals', icon: Bluetooth, category: 'hardware' },
+  { id: 'SCHEDULE_EXACT_ALARM', name: 'SCHEDULE_EXACT_ALARM', description: 'Triggers precise alarms and vibration updates for class schedules', icon: Clock, category: 'hardware' },
+  { id: 'FOREGROUND_SERVICE', name: 'FOREGROUND_SERVICE', description: 'Runs a high-priority service to ensure always-listening wake word', icon: Activity, category: 'system' },
+  { id: 'BIND_ACCESSIBILITY_SERVICE', name: 'PrivateAgent Screen Control', description: 'Screen Reading: Parses the Android UI tree to map clickable, scrollable, and editable elements. Enable in Android Accessibility Settings.', icon: Cpu, category: 'system', restricted: true }
+];
+
+export function Settings({
+  currentUser,
+  userProfile,
+  onUpdateProfile,
+  theme,
+  currentTheme,
+  setCurrentTheme,
+  onLogout,
+  addSystemLog,
+  isAdmin,
+  onNavigateHome
+}: UserProfileSettingsProps) {
+  const { appSettings } = useLiveSettings();
+  const { states, getDistrictsForState, getBlocksForDistrict, getSchoolsForBlock, loading: locationsLoading } = useLocationData();
+  
+  // API Key local state (only shown if isAdmin === true)
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('custom_gemini_api_key') || '');
+  const [showKey, setShowKey] = useState(false);
+  const [keySaved, setKeySaved] = useState(() => !!localStorage.getItem('custom_gemini_api_key'));
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Student Profile fields state
+  const [fullName, setFullName] = useState(userProfile?.fullName || currentUser?.displayName || 'Student Operator');
+  const [schoolName, setSchoolName] = useState(userProfile?.schoolName || userProfile?.school || '');
+  const [studentClass, setStudentClass] = useState(userProfile?.class || 'Class 11');
+  const [board, setBoard] = useState(userProfile?.board || 'WBCHSE');
+  const [stream, setStream] = useState(userProfile?.stream || 'Science');
+  const [language, setLanguage] = useState(userProfile?.language || 'English');
+  
+  // Location
+  const [country, setCountry] = useState(userProfile?.country || 'India');
+  const [state, setState] = useState(userProfile?.state || '');
+  const [district, setDistrict] = useState(userProfile?.district || '');
+  const [block, setBlock] = useState(userProfile?.block || '');
+
+  // Subjects System
+  const [subjects, setSubjects] = useState<string[]>(userProfile?.subjects || []);
+  const [firstLang, setFirstLang] = useState('');
+  const [secondLang, setSecondLang] = useState('');
+  const [optionalSubjects, setOptionalSubjects] = useState<string[]>([]);
+
+  // Parse existing subjects if possible
+  useEffect(() => {
+    if (board === 'WBCHSE' && subjects.length > 0) {
+      if (stream === 'Science') {
+        const l1 = subjects.find(s => WBCHSE_SCIENCE_LANG1.includes(s));
+        const l2 = subjects.find(s => WBCHSE_SCIENCE_LANG2.includes(s));
+        if (l1) setFirstLang(l1);
+        if (l2) setSecondLang(l2);
+        setOptionalSubjects(subjects.filter(s => s !== l1 && s !== l2 && s !== 'Physics' && s !== 'Chemistry'));
+      } else if (stream === 'Arts') {
+        const l1 = subjects.find(s => WBCHSE_ARTS_LANG1.includes(s));
+        const l2 = subjects.find(s => WBCHSE_ARTS_LANG2.includes(s));
+        if (l1) setFirstLang(l1);
+        if (l2) setSecondLang(l2);
+        setOptionalSubjects(subjects.filter(s => s !== l1 && s !== l2));
+      } else if (stream === 'Commerce') {
+        const l2 = subjects.find(s => WBCHSE_COMMERCE_CHOOSE_ONE.includes(s));
+        if (l2) setSecondLang(l2);
+        setOptionalSubjects(subjects.filter(s => s !== 'English' && s !== l2));
+      }
+    } else {
+      setOptionalSubjects(subjects);
+    }
+  }, [board, stream]); // Run once mostly
+
+  const toggleOptionalSubject = (subj: string) => {
+    setOptionalSubjects(prev => 
+      prev.includes(subj) ? prev.filter(s => s !== subj) : [...prev, subj]
+    );
+  };
+
+  const [bio, setBio] = useState(userProfile?.bio || '');
+  const [customAvatarUrl, setCustomAvatarUrl] = useState(userProfile?.customAvatarUrl || '');
+  const [avatarIndex, setAvatarIndex] = useState(userProfile?.avatarIndex || 0);
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  // Version 3.7 - New states
+  const [username, setUsername] = useState(userProfile?.username || '');
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [privacyRequests, setPrivacyRequests] = useState(userProfile?.privacyRequests || 'everyone');
+  const [blockedUsersList, setBlockedUsersList] = useState<any[]>([]);
+  const [loadingBlocked, setLoadingBlocked] = useState(false);
+  const [autoAllowActions, setAutoAllowActions] = useState(() => {
+    return userProfile?.autoAllowDeviceActions === true || localStorage.getItem('sweety_auto_allow_actions') === 'true';
+  });
+
+  const [uiTree, setUiTree] = useState<MappedUITree | null>(null);
+  const [showTreeInspector, setShowTreeInspector] = useState(false);
+
+  const [permissionsStatus, setPermissionsStatus] = useState<Record<string, boolean>>(() => {
+    if (userProfile?.permissionsStatus) {
+      return userProfile.permissionsStatus;
+    }
+    const initial: Record<string, boolean> = {};
+    const alwaysGranted = ['INTERNET', 'ACCESS_NETWORK_STATE', 'VIBRATE', 'WAKE_LOCK'];
+    alwaysGranted.forEach(id => {
+      initial[id] = true;
+    });
+    const hasGrantedAll = localStorage.getItem('sweety_permissions_granted') === 'true';
+    if (hasGrantedAll) {
+      const allIds = [
+        'INTERNET', 'ACCESS_NETWORK_STATE', 'POST_NOTIFICATIONS', 'VIBRATE', 'WAKE_LOCK',
+        'RECORD_AUDIO', 'CALL_PHONE', 'READ_CONTACTS', 'WRITE_CONTACTS', 'READ_PHONE_NUMBERS',
+        'SEND_SMS', 'READ_SMS', 'RECEIVE_SMS', 'CAMERA', 'READ_MEDIA_IMAGES', 'READ_MEDIA_VIDEO',
+        'READ_MEDIA_AUDIO', 'READ_EXTERNAL_STORAGE', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION',
+        'BLUETOOTH_CONNECT', 'BLUETOOTH_SCAN', 'SCHEDULE_EXACT_ALARM', 'FOREGROUND_SERVICE', 'BIND_ACCESSIBILITY_SERVICE'
+      ];
+      allIds.forEach(id => {
+        initial[id] = true;
+      });
+    }
+    return initial;
+  });
+
+  useEffect(() => {
+    if (userProfile?.permissionsStatus) {
+      setPermissionsStatus(userProfile.permissionsStatus);
+    }
+  }, [userProfile]);
+
+  const handleTogglePermission = async (p: any) => {
+    // Determine type for permissionManager
+    let type: 'microphone' | 'camera' | 'notifications' | 'media' | 'storage' | null = null;
+    if (p.id === 'RECORD_AUDIO') type = 'microphone';
+    else if (p.id === 'CAMERA') type = 'camera';
+    else if (p.id === 'POST_NOTIFICATIONS') type = 'notifications';
+    else if (p.id === 'READ_EXTERNAL_STORAGE') type = 'storage';
+    else if (p.id.startsWith('READ_MEDIA_')) type = 'media';
+
+    let result = true;
+    if (type) {
+      result = await permissionManager.requestPermission(
+        type,
+        p.name + " Permission",
+        `XPRO AGENT is requesting access to your device ${p.name.toLowerCase()} capability.`
+      );
+    }
+
+    const updated = {
+      ...permissionsStatus,
+      [p.id]: result
+    };
+    
+    if (result) {
+      if (p.id === 'READ_EXTERNAL_STORAGE') {
+        updated['READ_MEDIA_VIDEO'] = true;
+        updated['READ_MEDIA_AUDIO'] = true;
+      }
+      if (p.id === 'RECORD_AUDIO') {
+        updated['FOREGROUND_SERVICE'] = true;
+      }
+    }
+
+    setPermissionsStatus(updated);
+    localStorage.setItem('sweety_permissions_granted', 'true');
+    if (currentUser) {
+      try {
+        const uRef = doc(db, 'users', currentUser.uid);
+        await updateDoc(uRef, {
+          permissionsStatus: updated,
+          permissionsGranted: true
+        });
+      } catch (err) {
+        console.error('Failed to sync permissionsStatus:', err);
+      }
+    }
+    onUpdateProfile({
+      ...userProfile,
+      permissionsStatus: updated,
+      permissionsGranted: true
+    });
+  };
+
+  // Fetch blocked users details
+  useEffect(() => {
+    if (!userProfile?.blockedUsers?.length) {
+      setBlockedUsersList([]);
+      return;
+    }
+    const fetchBlockedDetails = async () => {
+      setLoadingBlocked(true);
+      try {
+        const list: any[] = [];
+        for (const uid of userProfile.blockedUsers) {
+          const uDoc = await getDoc(doc(db, 'users', uid));
+          if (uDoc.exists()) {
+            list.push({ id: uid, ...uDoc.data() });
+          } else {
+            list.push({ id: uid, fullName: 'Unknown User', username: 'unknown' });
+          }
+        }
+        setBlockedUsersList(list);
+      } catch (err) {
+        console.error('Failed to load blocked users:', err);
+      } finally {
+        setLoadingBlocked(false);
+      }
+    };
+    fetchBlockedDetails();
+  }, [userProfile?.blockedUsers]);
+
+  // Client-side image cropping and compression
+  const cropAndCompressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.src = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const size = 250; // perfect square avatar size
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error("Could not get canvas context"));
+          return;
+        }
+        
+        // Center crop to square
+        const minDim = Math.min(img.width, img.height);
+        const sx = (img.width - minDim) / 2;
+        const sy = (img.height - minDim) / 2;
+        
+        ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // 0.8 quality JPEG
+        resolve(dataUrl);
+      };
+      img.onerror = (err) => {
+        reject(err);
+      };
+    });
+  };
+
+  const avatars = [
+    '🎓', '🌟', '🔬', '🚀', '🧠', '✏️', '💻', '💡'
+  ];
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const compressedBase64 = await cropAndCompressImage(file);
+        setCustomAvatarUrl(compressedBase64);
+      } catch (err) {
+        console.error("Compression failed:", err);
+        alert("Failed to process image. Please try another one.");
+      }
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+    setSaveError('');
+
+    if (!fullName.trim()) {
+      alert("Name is a required field!");
+      setIsSaving(false);
+      return;
+    }
+
+    const cleanUsername = username.toLowerCase().trim();
+    if (!cleanUsername) {
+      alert("Username cannot be empty.");
+      setIsSaving(false);
+      return;
+    }
+    const regex = /^[a-zA-Z0-9_.]+$/;
+    if (!regex.test(cleanUsername)) {
+      alert("Username can only contain letters, numbers, underscores (_), and periods (.).");
+      setIsSaving(false);
+      return;
+    }
+
+    // 30 days change cooldown check
+    let lastUsernameChangeVal = userProfile?.lastUsernameChange || null;
+    if (userProfile?.username && cleanUsername !== userProfile.username) {
+      if (userProfile.lastUsernameChange) {
+        const lastChange = new Date(userProfile.lastUsernameChange).getTime();
+        const diffDays = (Date.now() - lastChange) / (1000 * 60 * 60 * 24);
+        const cooldownDays = 30; // 30 days limit
+        if (diffDays < cooldownDays) {
+          const rem = Math.ceil(cooldownDays - diffDays);
+          alert(`You can only change your username once every ${cooldownDays} days. Please try again in ${rem} days.`);
+          setIsSaving(false);
+          return;
+        }
+      }
+      
+      // Perform uniqueness check
+      try {
+        const q = query(collection(db, 'users'), where('username', '==', cleanUsername));
+        const snap = await getDocs(q);
+        const alreadyTaken = snap.docs.some(doc => doc.id !== currentUser.uid);
+        if (alreadyTaken) {
+          alert("This username is already taken. Please try another one.");
+          setIsSaving(false);
+          return;
+        }
+        lastUsernameChangeVal = new Date().toISOString();
+      } catch (err) {
+        console.error('Uniqueness check error:', err);
+        alert("Failed to check username availability.");
+        setIsSaving(false);
+        return;
+      }
+    }
+
+    let finalSubjects: string[] = [];
+    if (board === 'WBCHSE') {
+      if (stream === 'Science') {
+        finalSubjects = [firstLang, secondLang, 'Physics', 'Chemistry', ...optionalSubjects];
+      } else if (stream === 'Arts') {
+        finalSubjects = [firstLang, secondLang, ...optionalSubjects];
+      } else if (stream === 'Commerce') {
+        finalSubjects = ['English', secondLang, ...optionalSubjects];
+      }
+    } else {
+      finalSubjects = optionalSubjects;
+    }
+    finalSubjects = finalSubjects.filter(Boolean);
+
+    const payload = {
+      fullName: fullName.trim(),
+      username: cleanUsername,
+      privacyRequests,
+      lastUsernameChange: lastUsernameChangeVal,
+      schoolName: schoolName.trim(),
+      school: schoolName.trim(),
+      class: studentClass,
+      board,
+      stream,
+      country,
+      state,
+      district,
+      block,
+      language,
+      subjects: finalSubjects,
+      bio: bio.trim(),
+      customAvatarUrl,
+      avatarIndex,
+      theme: currentTheme,
+      hasOnboarded: true,
+      autoAllowDeviceActions: autoAllowActions
+    };
+
+    try {
+      if (currentUser) {
+        const userRef = doc(db, 'users', currentUser.uid);
+        await syncUserProfile(currentUser.uid, payload);
+        addSystemLog(`[PROFILE] Synced profile details to cloud.`);
+      }
+      onUpdateProfile(payload);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2000);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to save profile: " + err.message);
+    }
+  };
+
+  const handleSaveApiKey = () => {
+    if (apiKey.trim()) {
+      localStorage.setItem('custom_gemini_api_key', apiKey.trim());
+      setKeySaved(true);
+      setSaveSuccess(true);
+      addSystemLog(`[SECURITY] Admin updated system API configuration.`);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } else {
+      localStorage.removeItem('custom_gemini_api_key');
+      setKeySaved(false);
+      setApiKey('');
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto custom-scrollbar relative z-10 w-full max-w-2xl mx-auto pb-48 font-sans">
+      <div className="p-4 sm:p-6 space-y-6">
+        
+        {/* Header */}
+        <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-500/20 to-indigo-500/20 flex items-center justify-center border border-pink-500/30">
+            <User size={20} className="text-pink-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-white tracking-tight">Identity & Profile</h2>
+            <p className="text-[10px] text-gray-400 font-mono tracking-wider">WORKSPACE CONFIGURATION</p>
+          </div>
+        </div>
+
+        {/* PREMIUM PROFILE WIDGET */}
+        {userProfile?.isPremium && (
+          <div className="bg-gradient-to-br from-amber-500 via-yellow-600 to-black border border-amber-500/30 p-6 rounded-3xl shadow-[0_0_25px_rgba(245,158,11,0.15)] relative overflow-hidden text-center space-y-4">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/20 blur-[30px] rounded-full pointer-events-none" />
+            
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-16 h-16 bg-black/40 border border-amber-500/30 rounded-2xl flex items-center justify-center text-4xl shadow-xl animate-pulse">
+                👑
+              </div>
+              <div className="mt-1">
+                <span className="inline-flex items-center gap-1.5 text-xs font-black tracking-widest text-amber-300 bg-black/40 px-3.5 py-1.5 rounded-full border border-amber-500/40 uppercase">
+                  ⭐ PREMIUM USER
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="text-xl font-black text-white">{fullName}</h3>
+              {userProfile.premiumExpiresAt ? (
+                <p className="text-[11px] text-amber-200/80 font-mono">
+                  Active until: {new Date(userProfile.premiumExpiresAt).toLocaleString()}
+                </p>
+              ) : (
+                <p className="text-[11px] text-amber-200/80 font-black tracking-widest uppercase">
+                  ⭐ LIFETIME PREMIUM ⭐
+                </p>
+              )}
+            </div>
+            
+            <p className="text-[10px] text-white/60 leading-relaxed italic">
+              Enjoying unlimited AI Voice assistance, zero ads, and early access to premium features.
+            </p>
+          </div>
+        )}
+
+        {/* Profile Card */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl  space-y-5 shadow-xl relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[20px] pointer-events-none rounded-full" />
+          
+          <div className="flex items-center gap-4">
+            <div className="relative group cursor-pointer">
+              {customAvatarUrl ? (
+                <img src={customAvatarUrl} alt="Avatar" className="w-16 h-16 rounded-2xl object-cover border-2 border-pink-500/50 shadow-lg shadow-pink-500/20" />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-500 flex items-center justify-center text-3xl shadow-lg shadow-purple-500/20">
+                  {avatars[avatarIndex]}
+                </div>
+              )}
+              <div className="absolute inset-0 bg-black/60 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <span className="text-[10px] font-bold text-white tracking-wider">EDIT</span>
+              </div>
+              <input type="file" accept="image/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileChange} />
+            </div>
+
+            <div className="flex-1">
+              <input 
+                type="text"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+                className="w-full bg-transparent text-lg font-bold text-white focus:outline-none border-b border-white/10 focus:border-pink-500 pb-1 mb-1 transition-colors"
+                placeholder="Full Name"
+              />
+              <input 
+                type="text"
+                value={bio}
+                onChange={e => setBio(e.target.value)}
+                className="w-full bg-transparent text-[11px] text-gray-400 focus:outline-none border-b border-transparent focus:border-white/10 pb-1"
+                placeholder="Add a short bio or goal..."
+              />
+              <div className="flex items-center gap-1.5 mt-2 bg-black/20 px-2.5 py-1 rounded-xl border border-white/5 w-fit">
+                <span className="text-indigo-400 font-bold text-xs">@</span>
+                <input 
+                  type="text"
+                  value={username}
+                  onChange={e => {
+                    const val = e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '');
+                    setUsername(val);
+                  }}
+                  className="bg-transparent text-xs text-indigo-300 font-bold focus:outline-none placeholder-indigo-500 w-32"
+                  placeholder="username"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Standard</label>
+              <select 
+                value={studentClass}
+                onChange={(e) => setStudentClass(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
+              >
+                {['Class 9', 'Class 10', 'Class 11', 'Class 12'].map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Primary Language</label>
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="w-full bg-black/40 border border-white/10 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
+              >
+                <option value="English">English</option>
+                <option value="Bengali">Bengali</option>
+                <option value="Hindi">Hindi</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-2">
+            <h4 className="text-[10px] uppercase tracking-wider text-gray-400 font-bold flex items-center gap-1">
+              <MapPin size={12} className="text-indigo-400" /> Location Details
+            </h4>
+            
+            <SearchableSelect 
+              label="State / Union Territory"
+              value={state}
+              onChange={(val) => { setState(val); setDistrict(''); setBlock(''); setSchoolName(''); }}
+              options={states}
+              placeholder="Select State"
+            />
+            
+            <SearchableSelect 
+              label="District"
+              value={district}
+              onChange={(val) => { setDistrict(val); setBlock(''); setSchoolName(''); }}
+              options={state ? getDistrictsForState(state) : []}
+              placeholder="Select District"
+            />
+            
+            <SearchableSelect 
+              label="Block / Municipality"
+              value={block}
+              onChange={(val) => { setBlock(val); setSchoolName(''); }}
+              options={district ? getBlocksForDistrict(state, district) : []}
+              placeholder="Select or Type your Block"
+            />
+            
+            <SearchableSelect 
+              label="School / Institution"
+              value={schoolName}
+              onChange={setSchoolName}
+              options={block ? getSchoolsForBlock(state, district, block) : []}
+              placeholder="Select or Type your School"
+            />
+          </div>
+
+          <div className="space-y-3 pt-4 border-t border-white/5">
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Board</label>
+                <select 
+                  value={board}
+                  onChange={(e) => setBoard(e.target.value)}
+                  className="w-full bg-black/40 border border-white/10 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="WBCHSE">WBCHSE</option>
+                  <option value="CBSE">CBSE</option>
+                  <option value="ICSE">ICSE</option>
+                </select>
+              </div>
+              <div className="flex-1 space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">Stream</label>
+                <select 
+                  value={stream}
+                  onChange={(e) => {
+                    setStream(e.target.value);
+                    setFirstLang('');
+                    setSecondLang('');
+                    setOptionalSubjects([]);
+                  }}
+                  className="w-full bg-black/40 border border-white/10 p-2.5 rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
+                >
+                  <option value="Science">Science</option>
+                  <option value="Arts">Arts</option>
+                  <option value="Commerce">Commerce</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Smart Subjects Section */}
+            {board === 'WBCHSE' ? (
+              <div className="space-y-3 p-3 bg-white/5 rounded-2xl border border-white/5">
+                <h5 className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">WBCHSE Curriculum</h5>
+                
+                {stream === 'Science' && (
+                  <>
+                    <SearchableSelect label="First Language" value={firstLang} onChange={setFirstLang} options={WBCHSE_SCIENCE_LANG1} />
+                    <SearchableSelect label="Second Language" value={secondLang} onChange={setSecondLang} options={WBCHSE_SCIENCE_LANG2} />
+                    <div className="text-[10px] font-bold text-gray-400">Compulsory: Physics, Chemistry</div>
+                    <div className="text-[10px] font-bold text-gray-400">Optional Subjects:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {WBCHSE_SCIENCE_OPTIONAL.map(subj => (
+                        <button key={subj} onClick={() => toggleOptionalSubject(subj)} className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${optionalSubjects.includes(subj) ? 'bg-pink-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                          {subj}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {stream === 'Arts' && (
+                  <>
+                    <SearchableSelect label="First Language" value={firstLang} onChange={setFirstLang} options={WBCHSE_ARTS_LANG1} />
+                    <SearchableSelect label="Second Language" value={secondLang} onChange={setSecondLang} options={WBCHSE_ARTS_LANG2} />
+                    <div className="text-[10px] font-bold text-gray-400">Elective Subjects:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {WBCHSE_ARTS_ELECTIVE.map(subj => (
+                        <button key={subj} onClick={() => toggleOptionalSubject(subj)} className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${optionalSubjects.includes(subj) ? 'bg-pink-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                          {subj}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {stream === 'Commerce' && (
+                  <>
+                    <div className="text-[10px] font-bold text-gray-400">Compulsory: English</div>
+                    <SearchableSelect label="Choose One Language" value={secondLang} onChange={setSecondLang} options={WBCHSE_COMMERCE_CHOOSE_ONE} />
+                    <div className="text-[10px] font-bold text-gray-400">Elective Subjects:</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {WBCHSE_COMMERCE_ELECTIVE.map(subj => (
+                        <button key={subj} onClick={() => toggleOptionalSubject(subj)} className={`px-2 py-1 rounded-lg text-[10px] font-semibold transition-all ${optionalSubjects.includes(subj) ? 'bg-pink-500 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}>
+                          {subj}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <SearchableSelect 
+                  label="Add Subjects"
+                  value=""
+                  onChange={(val) => {
+                    if (val && !optionalSubjects.includes(val)) {
+                      setOptionalSubjects([...optionalSubjects, val]);
+                    }
+                  }}
+                  options={[]}
+                  placeholder="Type a subject"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {optionalSubjects.map(subj => (
+                    <div key={subj} className="px-2 py-1 bg-white/10 text-white rounded-lg text-[10px] flex items-center gap-1.5">
+                      {subj}
+                      <button onClick={() => toggleOptionalSubject(subj)} className="text-rose-400 hover:text-rose-300">&times;</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-between items-center pt-2">
+            <button 
+              onClick={() => setAvatarIndex(p => (p + 1) % avatars.length)}
+              className="text-[10px] text-pink-400 font-bold hover:text-pink-300 transition-colors uppercase tracking-wider"
+            >
+              Cycle Avatar
+            </button>
+
+            <div className="flex flex-col items-end">
+            <button
+              onClick={handleSaveProfile}
+              disabled={isSaving || profileSaved}
+              className={`py-2.5 px-6 rounded-xl font-bold text-xs transition-all flex items-center gap-2 ${
+                profileSaved ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 
+                isSaving ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' :
+                'bg-gradient-to-r from-pink-500 to-purple-600 text-white hover:brightness-110 active:scale-95 shadow-lg shadow-purple-500/20'
+              }`}
+            >
+              {profileSaved ? (
+                <><Check size={14} /> Saved</>
+              ) : isSaving ? (
+                <><div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin"></div> Saving...</>
+              ) : (
+                'Save Profile'
+              )}
+            </button>
+            {saveError && <span className="text-[10px] text-rose-400 mt-1">{saveError}</span>}
+            </div>
+
+          </div>
+        </div>
+
+        {/* Application Preferences */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl  space-y-4 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-3">
+            <Sliders size={16} className="text-emerald-400" />
+            <h3 className="text-sm font-bold text-white">Application Preferences</h3>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Theme Selection</div>
+                <div className="text-[10px] text-gray-400">Change your visual environment</div>
+              </div>
+              <button 
+                onClick={() => setCurrentTheme(currentTheme === 'dark' ? 'light' : 'dark')}
+                className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-xs font-bold hover:bg-white/10 transition-colors"
+              >
+                {theme.name || 'Select'}
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Language & Voice</div>
+                <div className="text-[10px] text-gray-400">{appSettings.aiAssistantName}'s communication language</div>
+              </div>
+              <select 
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-black/40 border border-white/10 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+              >
+                <option value="English">English</option>
+                <option value="Bengali">Bengali</option>
+                <option value="Hindi">Hindi</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Notifications</div>
+                <div className="text-[10px] text-gray-400">Allow push notifications</div>
+              </div>
+              <button 
+                onClick={() => permissionManager.requestPermission('notifications', 'Push Notifications', 'XPRO AGENT will send you alerts for missed calls, friend requests, and study reminders.')}
+                className="px-3 py-1.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-bold"
+              >
+                Allow
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Schedule & Alerts */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl  space-y-4 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-3">
+            <Clock size={16} className="text-amber-400" />
+            <h3 className="text-sm font-bold text-white">Routine & Alerts</h3>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex flex-col gap-1">
+              <div className="text-xs font-bold text-white mb-0.5">Study Routine Engine</div>
+              <div className="text-[10px] text-gray-400">Auto-organize schedule based on school hours</div>
+              <div className="mt-2 text-[10px] bg-amber-500/10 text-amber-300 px-2 py-1.5 rounded-lg border border-amber-500/20">
+                Routine preferences sync automatically.
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="text-xs font-bold text-white mb-0.5">Reminders & Alarms</div>
+              <div className="text-[10px] text-gray-400">Sound and vibration settings for upcoming subjects</div>
+              <div className="mt-2 flex gap-2">
+                <span className="text-[9px] uppercase tracking-wider font-bold bg-white/10 px-2 py-1 rounded-md">Vibration: On</span>
+                <span className="text-[9px] uppercase tracking-wider font-bold bg-white/10 px-2 py-1 rounded-md">Sound: Watch Alarm</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Privacy & Safety */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl space-y-4 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-3">
+            <Lock size={16} className="text-pink-400" />
+            <h3 className="text-sm font-bold text-white">Privacy & Safety</h3>
+          </div>
+          
+          <div className="space-y-4">
+            {/* Request settings */}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Message Requests</div>
+                <div className="text-[10px] text-gray-400">Control who can send you messages</div>
+              </div>
+              <select 
+                value={privacyRequests}
+                onChange={(e) => setPrivacyRequests(e.target.value)}
+                className="bg-black/40 border border-white/10 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+              >
+                <option value="everyone">Everyone</option>
+                <option value="nobody">Nobody</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Friend Requests</div>
+                <div className="text-[10px] text-gray-400">Who can send you friend requests</div>
+              </div>
+              <select 
+                value={userProfile?.privacyFriendRequests || 'everyone'}
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  const uRef = doc(db, 'users', currentUser.uid);
+                  await updateDoc(uRef, { privacyFriendRequests: val });
+                  onUpdateProfile({ ...userProfile, privacyFriendRequests: val });
+                }}
+                className="bg-black/40 border border-white/10 p-1.5 rounded-lg text-xs text-white focus:outline-none"
+              >
+                <option value="everyone">Everyone</option>
+                <option value="friends_of_friends">Friends of Friends</option>
+                <option value="nobody">Nobody</option>
+              </select>
+            </div>
+
+            {/* Auto-Allow Assistant Actions */}
+            <div className="flex items-center justify-between border-t border-white/5 pt-3">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Auto-Allow Assistant Actions</div>
+                <div className="text-[10px] text-gray-400">Open apps & website links instantly without showing security prompt alerts.</div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  const val = !autoAllowActions;
+                  setAutoAllowActions(val);
+                  localStorage.setItem('sweety_auto_allow_actions', String(val));
+                  if (currentUser) {
+                    try {
+                      const uRef = doc(db, 'users', currentUser.uid);
+                      await updateDoc(uRef, { autoAllowDeviceActions: val });
+                    } catch (err) {
+                      console.error('Failed to sync autoAllowDeviceActions:', err);
+                    }
+                  }
+                  onUpdateProfile({ ...userProfile, autoAllowDeviceActions: val });
+                }}
+                className={`w-11 h-6 rounded-full p-1 transition-colors shrink-0 ${autoAllowActions ? 'bg-indigo-600' : 'bg-white/10'}`}
+              >
+                <div className={`w-4 h-4 rounded-full bg-white transition-transform ${autoAllowActions ? 'translate-x-5' : ''}`} />
+              </button>
+            </div>
+
+            {/* Blocked users list */}
+            <div className="space-y-2 pt-2 border-t border-white/5">
+              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Ban size={13} className="text-rose-400" />
+                <span>Blocked Users ({blockedUsersList.length})</span>
+              </div>
+              
+              {loadingBlocked ? (
+                <div className="py-2 text-center">
+                  <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
+                </div>
+              ) : blockedUsersList.length === 0 ? (
+                <p className="text-[10px] text-gray-500 italic">No blocked users.</p>
+              ) : (
+                <div className="space-y-2 max-h-[140px] overflow-y-auto custom-scrollbar">
+                  {blockedUsersList.map(u => (
+                    <div key={u.id} className="flex items-center justify-between p-2 bg-black/20 rounded-xl border border-white/5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center font-bold text-[10px] text-indigo-400 overflow-hidden shrink-0">
+                          {u.customAvatarUrl ? (
+                            <img src={u.customAvatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <span>{u.fullName.charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-bold text-white truncate">{u.fullName}</p>
+                          <p className="text-[9px] text-indigo-400 truncate">@{u.username || 'unknown'}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!currentUser) return;
+                          try {
+                            const uRef = doc(db, 'users', currentUser.uid);
+                            await updateDoc(uRef, {
+                              blockedUsers: arrayRemove(u.id)
+                            });
+                            onUpdateProfile({
+                              ...userProfile,
+                              blockedUsers: (userProfile.blockedUsers || []).filter((uid: string) => uid !== u.id)
+                            });
+                          } catch (err) {
+                            console.error('Failed to unblock:', err);
+                          }
+                        }}
+                        className="p-1.5 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/25 text-rose-300 rounded-lg text-[9px] font-bold transition-all flex items-center gap-1 shrink-0"
+                      >
+                        <UserMinus size={11} /> Unblock
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* System Permissions & Services */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl space-y-4 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-3">
+            <Shield size={16} className="text-emerald-400" />
+            <h3 className="text-sm font-bold text-white">System Permissions & Services</h3>
+          </div>
+          
+          <div className="space-y-3">
+            <p className="text-[10px] text-gray-400">
+              Check, toggle, or prompt native Android capability APIs. All standard operations are permitted post initial consent.
+            </p>
+            
+            {(() => {
+              const totalGranted = SETTINGS_PERMISSIONS.filter(p => !!permissionsStatus[p.id]).length;
+              const progressPercent = Math.round((totalGranted / SETTINGS_PERMISSIONS.length) * 100);
+              
+              return (
+                <>
+                  <div className="bg-black/20 p-3 rounded-2xl border border-white/5 space-y-2 text-left">
+                    <div className="flex items-center justify-between text-xs font-bold text-white">
+                      <span>Active Status Check</span>
+                      <span className="text-emerald-400 font-extrabold">{totalGranted}/{SETTINGS_PERMISSIONS.length} Permissions Configured</span>
+                    </div>
+                    <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-pink-500 to-emerald-400 h-full transition-all duration-300" 
+                        style={{ width: `${progressPercent}%` }} 
+                      />
+                    </div>
+                    {totalGranted < SETTINGS_PERMISSIONS.length && (
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const updated: Record<string, boolean> = {};
+                          SETTINGS_PERMISSIONS.forEach(p => {
+                            updated[p.id] = true;
+                          });
+                          setPermissionsStatus(updated);
+                          localStorage.setItem('sweety_permissions_granted', 'true');
+                          if (currentUser) {
+                            try {
+                              const uRef = doc(db, 'users', currentUser.uid);
+                              await updateDoc(uRef, {
+                                permissionsStatus: updated,
+                                permissionsGranted: true
+                              });
+                            } catch (err) {
+                              console.error('Failed to sync permissionsStatus:', err);
+                            }
+                          }
+                          onUpdateProfile({
+                            ...userProfile,
+                            permissionsStatus: updated,
+                            permissionsGranted: true
+                          });
+                        }}
+                        className="w-full mt-2 py-2 bg-gradient-to-r from-emerald-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 text-white rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/10 cursor-pointer"
+                      >
+                        <Shield size={12} className="animate-pulse" />
+                        <span>Grant All {SETTINGS_PERMISSIONS.length} Android Permissions</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* PrivateAgent Screen Control & Screen Reading Section */}
+                  <div className="bg-indigo-500/10 border border-indigo-500/20 p-3.5 rounded-2xl space-y-3 text-left">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl">
+                          <Cpu size={18} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-extrabold text-white">PrivateAgent Screen Control</h4>
+                          <p className="text-[10px] text-indigo-200/80 font-medium leading-snug mt-0.5">
+                            Screen Reading: Parses the Android UI tree to map clickable, scrollable, and editable elements.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[8px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        Accessibility Service
+                      </span>
+                    </div>
+
+                    <p className="text-[10px] text-gray-300 bg-black/30 p-2.5 rounded-xl border border-white/5 leading-relaxed">
+                      Enable the <strong className="text-indigo-300">"PrivateAgent Screen Control"</strong> service in your Android Accessibility Settings to allow real-time UI element mapping, automated button clicking, form auto-fill, and screen reading.
+                    </p>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <button
+                        onClick={() => openAccessibilitySettings()}
+                        className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <ExternalLink size={12} />
+                        <span>Enable in Accessibility Settings</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          const parsed = parseCurrentUITree();
+                          setUiTree(parsed);
+                          setShowTreeInspector(true);
+                        }}
+                        className="py-2 px-3 bg-white/10 hover:bg-white/15 text-white text-[10px] font-extrabold rounded-xl transition-all border border-white/10 flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Layers size={12} className="text-emerald-400" />
+                        <span>Parse UI Tree</span>
+                      </button>
+                    </div>
+
+                    {showTreeInspector && uiTree && (
+                      <div className="mt-3 p-3 bg-black/60 rounded-xl border border-indigo-500/30 space-y-2 text-xs">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
+                          <span className="font-bold text-indigo-300 flex items-center gap-1">
+                            <Layers size={12} /> Android UI Tree Mapping
+                          </span>
+                          <span className="text-[9px] text-gray-400">Total: {uiTree.totalNodes} Nodes</span>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-1.5 text-center text-[10px] font-extrabold">
+                          <div className="p-1.5 bg-emerald-500/20 text-emerald-300 rounded-lg border border-emerald-500/30">
+                            {uiTree.clickableCount} Clickable
+                          </div>
+                          <div className="p-1.5 bg-amber-500/20 text-amber-300 rounded-lg border border-amber-500/30">
+                            {uiTree.scrollableCount} Scrollable
+                          </div>
+                          <div className="p-1.5 bg-sky-500/20 text-sky-300 rounded-lg border border-sky-500/30">
+                            {uiTree.editableCount} Editable
+                          </div>
+                        </div>
+
+                        <div className="max-h-36 overflow-y-auto space-y-1 text-[9px] font-mono custom-scrollbar pr-1">
+                          {uiTree.elements.map((el, i) => (
+                            <div key={i} className="p-1.5 bg-white/5 rounded border border-white/5 flex items-center justify-between">
+                              <span className="text-gray-200 truncate max-w-[160px]">&lt;{el.tagName}&gt; {el.text || el.id}</span>
+                              <span className={`px-1 rounded text-[7px] font-extrabold uppercase ${el.type === 'clickable' ? 'bg-emerald-500/30 text-emerald-300' : el.type === 'editable' ? 'bg-sky-500/30 text-sky-300' : el.type === 'scrollable' ? 'bg-amber-500/30 text-amber-300' : 'bg-gray-500/30 text-gray-300'}`}>
+                                {el.type}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-[10px] text-gray-400 text-left font-bold uppercase tracking-wider mb-1 mt-3">
+                    Manage Android Manifest Permissions
+                  </div>
+
+                  <div className="max-h-[280px] overflow-y-auto space-y-2 pr-1 custom-scrollbar text-left">
+                    {SETTINGS_PERMISSIONS.map(p => {
+                      const Icon = p.icon;
+                      const isGranted = !!permissionsStatus[p.id];
+                      const isAuto = ['INTERNET', 'ACCESS_NETWORK_STATE', 'VIBRATE', 'WAKE_LOCK'].includes(p.id);
+
+                      return (
+                        <div 
+                          key={p.id}
+                          onClick={() => {
+                            if (!isAuto) handleTogglePermission(p);
+                          }}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${isGranted ? 'bg-emerald-500/5 border-emerald-500/10' : 'bg-black/20 border-white/5 hover:border-white/10'}`}
+                        >
+                          <div className={`p-1.5 rounded-lg shrink-0 ${isGranted ? 'bg-emerald-500/10 text-emerald-400' : 'bg-white/5 text-gray-400'}`}>
+                            <Icon size={14} />
+                          </div>
+                          
+                          <div className="flex-1 min-w-0 text-left space-y-0.5">
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="text-[10px] font-bold text-white font-mono break-all leading-tight">{p.id}</span>
+                              {isAuto && (
+                                <span className="text-[7px] bg-indigo-500/20 text-indigo-300 px-1 py-0.2 rounded font-black uppercase">AUTO</span>
+                              )}
+                              {p.restricted && (
+                                <span className="text-[7px] bg-pink-500/20 text-pink-300 px-1 py-0.2 rounded font-black uppercase">RESTRICTED</span>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-gray-400 leading-normal line-clamp-1">{p.description}</p>
+                          </div>
+
+                          <div className="flex items-center self-center shrink-0">
+                            <div className={`px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase transition-all ${isGranted ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                              {isGranted ? 'ACTIVE' : 'GRANT'}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
+
+            <div className="space-y-1 pt-1 text-left">
+              <div className="text-[10px] font-bold text-gray-300">Background Services Integration</div>
+              <div className="flex flex-wrap gap-1.5">
+                {['Accessibility Service', 'Notification Listener', 'Speech Recognition', 'Text To Speech', 'WorkManager', 'App Shortcuts'].map((srv) => (
+                  <span key={srv} className="text-[9px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 px-2 py-0.5 rounded-lg font-bold">
+                    {srv}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                permissionManager.requestPermission('microphone', 'Voice & AI Verification', 'Re-trigger safety scan of audio inputs.');
+              }}
+              className="w-full py-2.5 bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer mt-2"
+            >
+              <CheckCircle size={12} /> Verify All Credentials & Services
+            </button>
+          </div>
+        </div>
+
+        {/* Account Management */}
+        <div className="bg-white/5 border border-white/10 p-5 rounded-3xl  space-y-4 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 border-b border-white/5 pb-3">
+            <LogOut size={16} className="text-red-400" />
+            <h3 className="text-sm font-bold text-white">Account Management</h3>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-white mb-0.5">Connected Identity</div>
+                <div className="text-[10px] text-gray-400">{currentUser?.email || 'Guest Operator'}</div>
+              </div>
+              <button 
+                onClick={onLogout}
+                className="px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg text-xs font-bold hover:bg-red-500/30 transition-colors"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Security & System */}
+        {isAdmin && (
+          <div className="bg-white/5 border border-white/10 p-5 rounded-3xl  space-y-4 shadow-xl">
+            <div className="flex items-center gap-2 mb-2">
+              <Shield size={16} className="text-rose-400" />
+              <h3 className="text-sm font-bold text-white">System Override</h3>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 font-bold flex items-center justify-between">
+                <span>Custom Gemini API Key</span>
+                {keySaved && <span className="text-emerald-400 flex items-center gap-1"><CheckCircle size={10} /> Active</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full bg-black/40 border border-white/10 p-3 pl-10 pr-10 rounded-xl text-xs text-white focus:outline-none focus:border-rose-500 font-mono"
+                />
+                <Key size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" />
+                <button 
+                  onClick={() => setShowKey(!showKey)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                >
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-500 leading-relaxed">
+                If provided, this key overrides the server defaults. Your key is stored locally and never synced.
+              </p>
+              <button
+                onClick={handleSaveApiKey}
+                className="w-full py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold text-white transition-all mt-2 flex items-center justify-center gap-2"
+              >
+                {saveSuccess ? <span className="text-emerald-400">Configured Successfully</span> : 'Apply Override Configuration'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
