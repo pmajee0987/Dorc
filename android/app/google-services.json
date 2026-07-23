@@ -38,7 +38,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:1018245683248:android:468c71c841f9f1a35135f5",
         "android_client_info": {
-          "package_name": "com.xproai.agent"
+          "package_name": "com.sweetyai.app"
         }
       },
       "oauth_client": [
@@ -46,7 +46,7 @@
           "client_id": "1018245683248-mmrolmf9qrseg3lnnig06esur1de7iih.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.xproai.agent",
+            "package_name": "com.sweetyai.app",
             "certificate_hash": "67b896c9004eba39ae71e1561e42caeed0b8ace6"
           }
         },
