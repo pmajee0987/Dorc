@@ -33,12 +33,12 @@ export function CallManager() {
     // Clear any previous error
     setPeerError(null);
 
-    // Initialize PeerJS - if primary UID is taken, use fallback with suffix
+    // Initialize PeerJS with a unique session-scoped ID to prevent ID conflict
     const uid = auth.currentUser.uid;
-    const targetPeerId = peerInitKey === 0 ? uid : `${uid}_${Math.random().toString(36).substring(2, 7)}`;
+    const targetPeerId = `${uid}_${Math.random().toString(36).substring(2, 10)}`;
 
     const peer = new Peer(targetPeerId, {
-      debug: 1,
+      debug: 0,
     });
     
     peer.on('open', (id) => {

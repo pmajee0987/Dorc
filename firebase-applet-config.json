@@ -1,10 +1,12 @@
 {
-  "projectId": "remixed-project-id",
-  "appId": "remixed-app-id",
-  "apiKey": "remixed-api-key",
-  "authDomain": "remixed-auth-domain",
-  "firestoreDatabaseId": "remixed-firestore-database-id",
-  "storageBucket": "remixed-storage-bucket",
-  "messagingSenderId": "remixed-messaging-sender-id",
-  "measurementId": "remixed-measurement-id"
+  "projectId": "xpro-ai-agent",
+  "appId": "1:1018245683248:web:b528c2afba4a5c6a5135f5",
+  "apiKey": "AIzaSyCMoZV8AhCLOU9851CuUpyXhcvziEvw8Mk",
+  "authDomain": "xpro-ai-agent.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-remixaiedu-ba683713-181d-4341-9dd4-b81d1d475482",
+  "storageBucket": "xpro-ai-agent.firebasestorage.app",
+  "messagingSenderId": "1018245683248",
+  "measurementId": "",
+  "oAuthClientId": "1018245683248-6vuh6rd07c7v0vjim71k6ta13fsdrr11.apps.googleusercontent.com",
+  "recaptchaSiteKey": ""
 }

@@ -93,17 +93,22 @@ async function createServer() {
   app.post('/api/sync-user', requireAuth, async (req: AuthRequest, res: Response) => {
     try {
       const { fullName, username, avatarUrl } = req.body;
+      const uid = req.user?.uid;
+      const email = req.user?.email || `${uid}@placeholder.com`;
+      if (!uid) {
+        return res.status(400).json({ error: 'Missing user ID' });
+      }
       const user = await getOrCreateUser(
-        req.user!.uid,
-        req.user!.email!,
+        uid,
+        email,
         fullName,
         username,
         avatarUrl
       );
       res.json(user);
     } catch (error: any) {
-      console.error('User sync error:', error);
-      res.status(500).json({ error: 'Failed to sync user', details: error.message });
+      console.warn('User sync to SQL skipped or failed:', error?.message || error);
+      res.json({ synced: false, message: error?.message || 'SQL sync not available' });
     }
   });
 

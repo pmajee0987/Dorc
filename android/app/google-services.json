@@ -1,42 +1,70 @@
 {
   "project_info": {
-    "project_number": "934325615371",
-    "firebase_url": "https://sweetyai-5343d-default-rtdb.firebaseio.com",
-    "project_id": "sweetyai-5343d",
-    "storage_bucket": "sweetyai-5343d.firebasestorage.app"
+    "project_number": "1018245683248",
+    "project_id": "xpro-ai-agent",
+    "storage_bucket": "xpro-ai-agent.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:934325615371:android:76ab4f2636100966cf800e",
+        "mobilesdk_app_id": "1:1018245683248:android:75aa9c599cf05ccd5135f5",
         "android_client_info": {
-          "package_name": "com.sweetyai.app"
+          "package_name": "com.krish.xproai"
         }
       },
       "oauth_client": [
         {
-          "client_id": "934325615371-cjen83lvep3gd9tdcadnk754hsh2mt8h.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.sweetyai.app",
-            "certificate_hash": "67b896c9004eba39ae71e1561e42caeed0b8ace6"
-          }
-        },
-        {
-          "client_id": "934325615371-8jpui140c3fentk7n2i6qfg9lin7ncv7.apps.googleusercontent.com",
+          "client_id": "1018245683248-6vuh6rd07c7v0vjim71k6ta13fsdrr11.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyAhSJg67BBDqjOKZGAleNc9D5unumPzeRo"
+          "current_key": "AIzaSyBWNU_aezGP6aggWKnXC0sVMCjG87acvyY"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "934325615371-7jkhdp5hm9kat4tjbaal7tf867ai40oe.apps.googleusercontent.com",
+              "client_id": "1018245683248-6vuh6rd07c7v0vjim71k6ta13fsdrr11.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1018245683248:android:468c71c841f9f1a35135f5",
+        "android_client_info": {
+          "package_name": "com.xproai.agent"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1018245683248-mmrolmf9qrseg3lnnig06esur1de7iih.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.xproai.agent",
+            "certificate_hash": "67b896c9004eba39ae71e1561e42caeed0b8ace6"
+          }
+        },
+        {
+          "client_id": "1018245683248-6vuh6rd07c7v0vjim71k6ta13fsdrr11.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBWNU_aezGP6aggWKnXC0sVMCjG87acvyY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1018245683248-6vuh6rd07c7v0vjim71k6ta13fsdrr11.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

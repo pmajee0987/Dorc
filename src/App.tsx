@@ -47,6 +47,7 @@ import { Routine } from './types';
 import { processVoiceOrTextCommand } from './lib/routineCommands';
 import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, onSnapshot, addDoc, orderBy, limit } from 'firebase/firestore';
 import { AppUpdateOverlay } from './components/AppUpdateOverlay';
+import { PasswordResetModal } from './components/PasswordResetModal';
 
 const CURRENT_VERSION_CODE = 1;
 import { captureScreenSnapshot, startScreenStream, stopActiveScreenStream, getActiveScreenStream, subscribeToScreenStream } from './lib/screenCapture';
@@ -269,54 +270,50 @@ function AuthHub({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
 
   useEffect(() => {
-    // Handle redirect result if returning from Capacitor Google Auth
+    // Only check redirect result if redirect sign-in was initiated
+    const isRedirect = sessionStorage.getItem('firebase_redirect_in_progress') === 'true';
+    if (!isRedirect) return;
+
     getRedirectResult(auth)
       .then(async (userCredential) => {
+        sessionStorage.removeItem('firebase_redirect_in_progress');
         if (userCredential) {
           setLoading(true);
-          const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
-          if (userSnap.exists() && userSnap.data().blocked === true) {
-            await signOut(auth);
-            setErrorMsg("Access Denied: This account has been locked by the administrator.");
-            addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
-            setLoading(false);
-            return;
+          try {
+            const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
+            if (userSnap.exists() && userSnap.data().blocked === true) {
+              await signOut(auth);
+              setErrorMsg("Access Denied: This account has been locked by the administrator.");
+              addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
+              setLoading(false);
+              return;
+            }
+          } catch (dbErr) {
+            console.warn("Error checking user blocked status:", dbErr);
           }
           setSuccessMsg("Welcome! Authenticated via Google.");
           addSystemLog(`[AUTH] Google authentication successful for ${userCredential.user.email}`);
           setTimeout(() => {
             onUnlock(false, userCredential.user);
-          }, 1000);
+          }, 500);
         }
       })
       .catch((error) => {
-        console.error(error);
+        sessionStorage.removeItem('firebase_redirect_in_progress');
+        if (error?.message?.includes('INTERNAL ASSERTION FAILED') || error?.code === 'auth/null-user') {
+          return;
+        }
+        console.error("Redirect auth error:", error);
         setErrorMsg(error.message || "Google Authentication redirect failed.");
         addSystemLog(`[AUTH_ERR] Redirect sign-in failed: ${error.message}`);
       });
   }, [onUnlock, addSystemLog]);
 
   const handlePasswordReset = async () => {
-    if (!email) {
-      setErrorMsg("Please enter your email address to reset password.");
-      return;
-    }
-    setLoading(true);
-    setErrorMsg(null);
-    setSuccessMsg(null);
-    try {
-      await sendPasswordResetEmail(auth, email);
-      setSuccessMsg(`Password reset email sent to ${email}. Please check your inbox and spam folder.`);
-      addSystemLog(`[AUTH] Password reset requested for ${email}`);
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || "Failed to send password reset email.");
-      addSystemLog(`[AUTH_ERR] Password reset failed: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
+    setShowResetModal(true);
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
@@ -338,9 +335,14 @@ function AuthHub({
            throw new Error("Please use a real, permanent email address.");
         }
         userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await sendEmailVerification(userCredential.user);
-        setSuccessMsg("Account created! A verification email has been sent. Please verify before logging in.");
-        addSystemLog(`[AUTH] New account created for ${email}, verification email sent`);
+        try {
+          await sendEmailVerification(userCredential.user);
+          setSuccessMsg("Account created! A verification link has been sent to your email.");
+        } catch (vErr) {
+          console.warn("Could not send verification email link:", vErr);
+          setSuccessMsg("Account created successfully!");
+        }
+        addSystemLog(`[AUTH] New account created for ${email}`);
       } else {
         userCredential = await signInWithEmailAndPassword(auth, email, password);
         setSuccessMsg("Welcome back!");
@@ -348,25 +350,37 @@ function AuthHub({
       }
 
       // Check if user is blocked in Firestore
-      const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
-      if (userSnap.exists() && userSnap.data().blocked === true) {
-        await signOut(auth);
-        setErrorMsg("Access Denied: This account has been locked by the administrator.");
-        addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
-        setLoading(false);
-        return;
+      try {
+        const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
+        if (userSnap.exists() && userSnap.data().blocked === true) {
+          await signOut(auth);
+          setErrorMsg("Access Denied: This account has been locked by the administrator.");
+          addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
+          setLoading(false);
+          return;
+        }
+      } catch (dbErr) {
+        console.warn("Error checking user blocked status:", dbErr);
       }
 
-      if (userCredential.user.emailVerified) {
-        setTimeout(() => {
-          onUnlock(false, userCredential.user);
-        }, 1000);
-      }
+      setTimeout(() => {
+        onUnlock(false, userCredential.user);
+      }, 500);
 
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || "Authentication failed.");
-      addSystemLog(`[AUTH_ERR] Email auth failed: ${err.message}`);
+      console.error("Email auth error:", err);
+      let errMsg = err.message || "Authentication failed.";
+      if (err.code === 'auth/email-already-in-use') {
+        errMsg = "An account with this email already exists. Please sign in instead.";
+      } else if (err.code === 'auth/weak-password') {
+        errMsg = "Password should be at least 6 characters long.";
+      } else if (err.code === 'auth/invalid-email') {
+        errMsg = "Please enter a valid email address.";
+      } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        errMsg = "Invalid email or password. Please check your credentials and try again.";
+      }
+      setErrorMsg(errMsg);
+      addSystemLog(`[AUTH_ERR] Email auth failed: ${errMsg}`);
     } finally {
       setLoading(false);
     }
@@ -378,52 +392,81 @@ function AuthHub({
     setSuccessMsg(null);
     try {
       const provider = new GoogleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('profile');
+      provider.setCustomParameters({ prompt: 'select_account' });
+
+      let userCredential: any = null;
+
       if (Capacitor.isNativePlatform()) {
-        const result = await FirebaseAuthentication.signInWithGoogle();
-        if (!result.credential?.idToken) {
-          throw new Error('No ID token found from Google Sign-In.');
+        try {
+          const result = await FirebaseAuthentication.signInWithGoogle();
+          if (result.credential?.idToken) {
+            const credential = GoogleAuthProvider.credential(result.credential?.idToken, result.credential?.accessToken);
+            userCredential = await signInWithCredential(auth, credential);
+          }
+        } catch (nativeErr: any) {
+          console.warn("Capacitor native Google sign in failed, falling back to popup/redirect:", nativeErr);
         }
-        const credential = GoogleAuthProvider.credential(result.credential?.idToken, result.credential?.accessToken);
-        const userCredential = await signInWithCredential(auth, credential);
-        
-        // Check if user is blocked in Firestore
-        const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
-        if (userSnap.exists() && userSnap.data().blocked === true) {
-          await signOut(auth);
-          setErrorMsg("Access Denied: This account has been locked by the administrator.");
-          addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
-          setLoading(false);
-          return;
+      }
+
+      if (!userCredential) {
+        try {
+          userCredential = await signInWithPopup(auth, provider);
+        } catch (popupErr: any) {
+          console.warn("signInWithPopup failed, testing redirect fallback:", popupErr);
+          if (
+            popupErr.code === 'auth/popup-blocked' ||
+            popupErr.code === 'auth/popup-closed-by-user' ||
+            popupErr.code === 'auth/cancelled-popup-request' ||
+            popupErr.message?.includes('popup')
+          ) {
+            addSystemLog(`[AUTH] Popup blocked or closed, redirecting for Google Sign-In...`);
+            sessionStorage.setItem('firebase_redirect_in_progress', 'true');
+            await signInWithRedirect(auth, provider);
+            return;
+          }
+          if (popupErr.code === 'auth/operation-not-allowed') {
+            throw new Error("Google Sign-In is not enabled in Firebase Console. Please enable Google provider under Authentication -> Sign-in method.");
+          } else if (popupErr.code === 'auth/unauthorized-domain') {
+            throw new Error("This domain is not authorized in Firebase Console. Please add this domain under Firebase Authentication -> Settings -> Authorized domains.");
+          } else {
+            throw popupErr;
+          }
+        }
+      }
+
+      if (userCredential) {
+        try {
+          const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
+          if (userSnap.exists() && userSnap.data().blocked === true) {
+            await signOut(auth);
+            setErrorMsg("Access Denied: This account has been locked by the administrator.");
+            addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
+            setLoading(false);
+            return;
+          }
+        } catch (dbErr) {
+          console.warn("Error checking user blocked status:", dbErr);
         }
 
         setSuccessMsg("Welcome! Authenticated via Google.");
         addSystemLog(`[AUTH] Google authentication successful for ${userCredential.user.email}`);
         setTimeout(() => {
           onUnlock(false, userCredential.user);
-        }, 1000);
-      } else {
-        const userCredential = await signInWithPopup(auth, provider);
-        
-        // Check if user is blocked in Firestore
-        const userSnap = await getDoc(doc(db, 'users', userCredential.user.uid));
-        if (userSnap.exists() && userSnap.data().blocked === true) {
-          await signOut(auth);
-          setErrorMsg("Access Denied: This account has been locked by the administrator.");
-          addSystemLog(`[AUTH_ERR] Blocked user ${userCredential.user.email} attempted login.`);
-          setLoading(false);
-          return;
-        }
-
-        setSuccessMsg("Welcome! Authenticated via Google.");
-        addSystemLog(`[AUTH] Google authentication successful for ${userCredential.user.email}`);
-        setTimeout(() => {
-          onUnlock(false, userCredential.user);
-        }, 1000);
+        }, 500);
       }
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err.message || "Google Authentication failed.");
-      addSystemLog(`[AUTH_ERR] Google sign-in failed: ${err.message}`);
+      console.error("Google sign in error:", err);
+      let customMsg = err.message || "Google Authentication failed.";
+      if (err.code === 'auth/operation-not-allowed') {
+        customMsg = "Google Sign-In is not enabled in Firebase Console. Please enable Google provider under Authentication -> Sign-in method.";
+      } else if (err.code === 'auth/unauthorized-domain') {
+        customMsg = "This domain is not authorized in Firebase Console. Please add this domain under Firebase Authentication -> Settings -> Authorized domains.";
+      }
+      setErrorMsg(customMsg);
+      addSystemLog(`[AUTH_ERR] Google sign-in failed: ${customMsg}`);
+    } finally {
       setLoading(false);
     }
   };
@@ -608,6 +651,17 @@ function AuthHub({
         </AnimatePresence>
       </motion.div>
 
+      {/* Password Reset Modal */}
+      <AnimatePresence>
+        {showResetModal && (
+          <PasswordResetModal
+            initialEmail={email}
+            onClose={() => setShowResetModal(false)}
+            onSuccess={(msg) => setSuccessMsg(msg)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Developed by Krish and Team Watermark */}
       <div className="mt-8 text-gray-500/40 font-semibold tracking-[0.25em] text-[10px] uppercase font-mono animate-pulse">
         Developed by Krish and Team
@@ -617,7 +671,7 @@ function AuthHub({
   );
 }
 
-function EmailVerificationScreen({ currentUser, onLogout, theme }: any) {
+function EmailVerificationScreen({ currentUser, onLogout, onContinue, theme }: any) {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState('');
   
@@ -634,11 +688,16 @@ function EmailVerificationScreen({ currentUser, onLogout, theme }: any) {
   };
 
   const handleRefresh = async () => {
-    await currentUser.reload();
-    if (currentUser.emailVerified) {
-      window.location.reload();
-    } else {
-      setMsg('Email is still not verified. Please check your inbox.');
+    try {
+      await currentUser.reload();
+      if (currentUser.emailVerified) {
+        if (onContinue) onContinue();
+        else window.location.reload();
+      } else {
+        setMsg('Email is still not verified. You can click "Skip & Continue to App" below to proceed.');
+      }
+    } catch (err: any) {
+      setMsg('Check failed. You can skip to enter the app.');
     }
   };
 
@@ -655,8 +714,8 @@ function EmailVerificationScreen({ currentUser, onLogout, theme }: any) {
         </div>
         <h2 className="text-2xl font-bold text-white mb-2">Verify your Email</h2>
         <p className="text-gray-400 mb-6 text-sm">
-          A verification link has been sent to <strong className="text-white">{currentUser?.email}</strong>. 
-          Please verify your email address to access the app.
+          A verification link was sent to <strong className="text-white">{currentUser?.email}</strong>. 
+          Please check your inbox or skip to enter the app directly.
         </p>
 
         {msg && (
@@ -668,22 +727,31 @@ function EmailVerificationScreen({ currentUser, onLogout, theme }: any) {
         <div className="flex flex-col gap-3">
           <button 
             onClick={handleRefresh}
-            className="w-full py-3 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-white font-semibold hover:brightness-110 active:scale-95 transition-all"
+            className="w-full py-3 bg-gradient-to-r from-pink-500 to-purple-600 rounded-xl text-white font-semibold hover:brightness-110 active:scale-95 transition-all cursor-pointer"
           >
-            I have verified, continue
+            I have verified, check status
           </button>
+
+          {onContinue && (
+            <button 
+              onClick={onContinue}
+              className="w-full py-3 bg-emerald-600/80 hover:bg-emerald-600 border border-emerald-500/30 rounded-xl text-white font-semibold active:scale-95 transition-all cursor-pointer shadow-lg shadow-emerald-900/30"
+            >
+              Skip & Continue to App
+            </button>
+          )}
           
           <button 
             onClick={handleResend}
             disabled={sending}
-            className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-white font-semibold hover:bg-white/10 active:scale-95 transition-all"
+            className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-white font-semibold hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
           >
             {sending ? 'Sending...' : 'Resend Verification Email'}
           </button>
 
           <button 
             onClick={onLogout}
-            className="w-full py-3 mt-4 text-gray-500 font-semibold hover:text-white transition-colors"
+            className="w-full py-2 mt-2 text-gray-500 font-semibold hover:text-white transition-colors text-sm cursor-pointer"
           >
             Sign out
           </button>
@@ -800,6 +868,7 @@ export default function App() {
   const [showMemoryJournal, setShowMemoryJournal] = useState(false);
   const [showDeveloperPanel, setShowDeveloperPanel] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [skippedVerification, setSkippedVerification] = useState<boolean>(false);
   const [currentUserRole, setCurrentUserRole] = useState<'user' | 'admin' | null>(null);
   const [userProfile, setUserProfile] = useState<any>(null);
   
@@ -1194,10 +1263,6 @@ export default function App() {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       setCurrentUser(user);
       if (user) {
-        if (!user.emailVerified) {
-          setIsAuthChecking(false);
-          return;
-        }
         setupPushNotifications();
         
         // Sync user to Cloud SQL
@@ -2060,21 +2125,32 @@ ${formattedHistory}
       }
 
       // Check if permission was already granted previously
-      let hasPermission = localStorage.getItem('sweety_perm_microphone') === 'granted';
+      let hasPermission = false;
       try {
-        if (!hasPermission && !Capacitor.isNativePlatform() && navigator.permissions) {
+        if (!Capacitor.isNativePlatform() && navigator.permissions) {
           const res = await navigator.permissions.query({ name: 'microphone' as PermissionName });
           if (res.state === 'granted') {
             hasPermission = true;
             localStorage.setItem('sweety_perm_microphone', 'granted');
+          } else {
+            localStorage.removeItem('sweety_perm_microphone');
+            hasPermission = false;
           }
+        } else if (localStorage.getItem('sweety_perm_microphone') === 'granted') {
+          hasPermission = true;
         }
-      } catch (e) { console.warn('Silent permission check failed', e); }
+      } catch (e) { 
+        console.warn('Silent permission query check failed', e);
+        hasPermission = localStorage.getItem('sweety_perm_microphone') === 'granted';
+      }
 
       if (!hasPermission) {
         const p = await permissionManager.requestPermission('microphone', 'Microphone Access', 'XPRO AGENT needs microphone access to interact with you via voice.');
         if (!p) {
+          localStorage.removeItem('sweety_perm_microphone');
           addSystemLog('[SECURITY] Microphone access denied.');
+          setError("Microphone access denied. Please click the Lock / Site Settings icon next to the browser URL to allow microphone access.");
+          stopXpro();
           return;
         }
         localStorage.setItem('sweety_perm_microphone', 'granted');
@@ -2094,15 +2170,19 @@ ${formattedHistory}
             autoGainControl: true
           } 
         });
+        localStorage.setItem('sweety_perm_microphone', 'granted');
       } catch (micErr: any) {
         console.error('getUserMedia mic access error:', micErr);
+        localStorage.removeItem('sweety_perm_microphone');
+        const errName = (micErr?.name || '').toLowerCase();
         const errStr = (micErr?.message || String(micErr) || '').toLowerCase();
+
         if (errStr.includes("notreadable") || errStr.includes("trackstart") || errStr.includes("in use") || errStr.includes("another app") || errStr.includes("occupied")) {
           setError("Oops! Microphone is currently being used by another app (e.g. screen recorder or call). Please close other mic apps and tap Start.");
-        } else if (errStr.includes("notallowederror") || errStr.includes("permission denied")) {
-          setError("Microphone permission denied. Please allow microphone access in device settings.");
+        } else if (errName.includes("notallowederror") || errName.includes("permissiondenied") || errStr.includes("notallowederror") || errStr.includes("permission denied")) {
+          setError("Microphone permission denied. Click the Lock icon in your browser address bar (or check device settings) to allow Microphone access.");
         } else {
-          setError("Unable to access microphone. Please ensure no other app is using it and try again.");
+          setError("Unable to access microphone. Please check your browser/device permissions and try again.");
         }
         retryCountRef.current = 99; // Do NOT auto-retry
         stopXpro();
@@ -2603,8 +2683,8 @@ ${formattedHistory}
     );
   }
 
-  if (currentUser && !currentUser.emailVerified) {
-    return <EmailVerificationScreen currentUser={currentUser} onLogout={() => auth.signOut()} theme={theme} />;
+  if (currentUser && !currentUser.emailVerified && !skippedVerification) {
+    return <EmailVerificationScreen currentUser={currentUser} onLogout={() => auth.signOut()} onContinue={() => setSkippedVerification(true)} theme={theme} />;
   }
 
   if (!isAppUnlocked) {

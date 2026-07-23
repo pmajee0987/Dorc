@@ -4,6 +4,7 @@ import { Mail, Lock, Eye, EyeOff, Shield, ArrowRight, Loader2, AlertTriangle, Ch
 import { auth } from '../firebase';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { useLiveSettings } from '../lib/useLiveSettings';
+import { PasswordResetModal } from './PasswordResetModal';
 
 export function AdminLogin({ onUnlock, onCancel }: { onUnlock: (user: any) => void, onCancel: () => void }) {
   const [email, setEmail] = useState('');
@@ -13,6 +14,7 @@ export function AdminLogin({ onUnlock, onCancel }: { onUnlock: (user: any) => vo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
+  const [showResetModal, setShowResetModal] = useState(false);
 
   const { appSettings } = useLiveSettings();
 
@@ -33,20 +35,8 @@ export function AdminLogin({ onUnlock, onCancel }: { onUnlock: (user: any) => vo
     }
   };
 
-  const handleForgot = async () => {
-    if (!email) {
-      setError('Please enter your email first to reset password.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await sendPasswordResetEmail(auth, email);
-      setMsg('Password reset email sent! Check your inbox.');
-    } catch (err: any) {
-      setError(err.message || 'Error sending reset email.');
-    } finally {
-      setLoading(false);
-    }
+  const handleForgot = () => {
+    setShowResetModal(true);
   };
 
   return (
@@ -152,6 +142,16 @@ export function AdminLogin({ onUnlock, onCancel }: { onUnlock: (user: any) => vo
           </button>
         </form>
       </motion.div>
+
+      <AnimatePresence>
+        {showResetModal && (
+          <PasswordResetModal
+            initialEmail={email}
+            onClose={() => setShowResetModal(false)}
+            onSuccess={(m) => setMsg(m)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

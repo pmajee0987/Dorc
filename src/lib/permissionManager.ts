@@ -2,7 +2,15 @@ import { Camera } from '@capacitor/camera';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Filesystem } from '@capacitor/filesystem';
 import { Dialog } from '@capacitor/dialog';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
+
+interface AudioPermissionPlugin {
+  checkPermission(): Promise<{ granted: boolean }>;
+  requestPermission(): Promise<{ granted: boolean }>;
+  openSettings(): Promise<void>;
+}
+
+const AudioPermissionHelper = registerPlugin<AudioPermissionPlugin>('AudioPermissionHelper');
 
 type PermissionType = 'microphone' | 'camera' | 'notifications' | 'media' | 'storage';
 
@@ -25,18 +33,15 @@ class PermissionManager {
   }
 
   async requestPermission(type: PermissionType, title: string, reason: string): Promise<boolean> {
-    // Check local storage cache first to avoid redundant UI popups
-    if (localStorage.getItem(`sweety_perm_${type}`) === 'granted') {
-      return true;
-    }
-
     if (!Capacitor.isNativePlatform()) {
-      // Web fallback
+      // Web permission check & cache validation
       try {
         if (type === 'notifications' && 'Notification' in window) {
           if (Notification.permission === 'granted') {
             localStorage.setItem(`sweety_perm_${type}`, 'granted');
             return true;
+          } else if (Notification.permission === 'denied') {
+            localStorage.removeItem(`sweety_perm_${type}`);
           }
         }
         if (type === 'microphone' || type === 'camera') {
@@ -46,31 +51,45 @@ class PermissionManager {
             if (res.state === 'granted') {
               localStorage.setItem(`sweety_perm_${type}`, 'granted');
               return true;
+            } else {
+              localStorage.removeItem(`sweety_perm_${type}`);
             }
           }
         }
       } catch (e) {
         console.warn('Web permission check failed', e);
       }
-    }
-
-    // Native logic
-    try {
-      if (type === 'camera') {
-        const status = await Camera.checkPermissions();
-        if (status.camera === 'granted') {
-          localStorage.setItem('sweety_perm_camera', 'granted');
-          return true;
+    } else {
+      // Native logic check
+      try {
+        if (type === 'camera') {
+          const status = await Camera.checkPermissions();
+          if (status.camera === 'granted') {
+            localStorage.setItem('sweety_perm_camera', 'granted');
+            return true;
+          } else {
+            localStorage.removeItem('sweety_perm_camera');
+          }
+        } else if (type === 'notifications') {
+          const status = await PushNotifications.checkPermissions();
+          if (status.receive === 'granted') {
+            localStorage.setItem('sweety_perm_notifications', 'granted');
+            return true;
+          } else {
+            localStorage.removeItem('sweety_perm_notifications');
+          }
+        } else if (type === 'microphone') {
+          const res = await AudioPermissionHelper.checkPermission();
+          if (res.granted) {
+            localStorage.setItem('sweety_perm_microphone', 'granted');
+            return true;
+          } else {
+            localStorage.removeItem('sweety_perm_microphone');
+          }
         }
-      } else if (type === 'notifications') {
-        const status = await PushNotifications.checkPermissions();
-        if (status.receive === 'granted') {
-          localStorage.setItem('sweety_perm_notifications', 'granted');
-          return true;
-        }
+      } catch (e) {
+        console.warn('Native permission check failed', e);
       }
-    } catch (e) {
-      console.warn('Native permission check failed', e);
     }
 
     return new Promise((resolve) => {
@@ -83,28 +102,66 @@ class PermissionManager {
           if (this.listener) this.listener(null);
 
           if (!userAgreed) {
+            localStorage.removeItem(`sweety_perm_${type}`);
             resolve(false);
             return;
           }
 
-          // Trigger actual native prompt after user accepts our custom UI explanation
+          // Trigger actual native or browser prompt after user accepts custom UI explanation
           try {
-            localStorage.setItem(`sweety_perm_${type}`, 'granted');
             if (Capacitor.isNativePlatform()) {
               if (type === 'camera') {
                 const res = await Camera.requestPermissions();
-                resolve(res.camera === 'granted');
+                if (res.camera === 'granted') {
+                  localStorage.setItem('sweety_perm_camera', 'granted');
+                  resolve(true);
+                } else {
+                  localStorage.removeItem('sweety_perm_camera');
+                  resolve(false);
+                }
               } else if (type === 'notifications') {
                 const res = await PushNotifications.requestPermissions();
-                resolve(res.receive === 'granted');
+                if (res.receive === 'granted') {
+                  localStorage.setItem('sweety_perm_notifications', 'granted');
+                  resolve(true);
+                } else {
+                  localStorage.removeItem('sweety_perm_notifications');
+                  resolve(false);
+                }
+              } else if (type === 'microphone') {
+                const res = await AudioPermissionHelper.requestPermission();
+                if (res.granted) {
+                  localStorage.setItem('sweety_perm_microphone', 'granted');
+                  resolve(true);
+                } else {
+                  localStorage.removeItem('sweety_perm_microphone');
+                  // Prompt user to open app settings if permanently denied
+                  const settingsPrompt = await Dialog.confirm({
+                    title: 'Microphone Permission Required',
+                    message: 'Microphone permission is permanently denied or blocked. Please open App Settings to allow microphone access.',
+                    okButtonTitle: 'Open Settings',
+                    cancelButtonTitle: 'Cancel'
+                  });
+                  if (settingsPrompt.value) {
+                    await AudioPermissionHelper.openSettings();
+                  }
+                  resolve(false);
+                }
               } else {
+                localStorage.setItem(`sweety_perm_${type}`, 'granted');
                 resolve(true);
               }
             } else {
               // Web actual request
               if (type === 'notifications' && 'Notification' in window) {
                 const res = await Notification.requestPermission();
-                resolve(res === 'granted');
+                if (res === 'granted') {
+                  localStorage.setItem(`sweety_perm_${type}`, 'granted');
+                  resolve(true);
+                } else {
+                  localStorage.removeItem(`sweety_perm_${type}`);
+                  resolve(false);
+                }
               } else if (type === 'camera' || type === 'microphone') {
                 try {
                   const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -112,16 +169,21 @@ class PermissionManager {
                     audio: type === 'microphone' || type === 'camera' 
                   });
                   stream.getTracks().forEach(t => t.stop());
+                  localStorage.setItem(`sweety_perm_${type}`, 'granted');
+                  resolve(true);
                 } catch (e) {
-                  console.warn('getUserMedia prompt completed or busy:', e);
+                  console.warn('getUserMedia prompt failed or denied:', e);
+                  localStorage.removeItem(`sweety_perm_${type}`);
+                  resolve(false);
                 }
-                resolve(true);
               } else {
+                localStorage.setItem(`sweety_perm_${type}`, 'granted');
                 resolve(true);
               }
             }
           } catch (err) {
             console.error('Final permission request failed:', err);
+            localStorage.removeItem(`sweety_perm_${type}`);
             resolve(false);
           }
         }
@@ -145,3 +207,4 @@ class PermissionManager {
 }
 
 export const permissionManager = new PermissionManager();
+

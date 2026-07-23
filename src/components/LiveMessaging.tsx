@@ -668,7 +668,14 @@ export function LiveMessaging({
   // Voice Note Recording Flow
   const startVoiceRecording = async () => {
     try {
+      const hasPermission = await permissionManager.requestPermission('microphone', 'Microphone Access', 'Microphone access is required to record voice messages.');
+      if (!hasPermission) {
+        showToast('Microphone access was denied. Please allow microphone in browser/device settings.', 'error');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStorage.setItem('sweety_perm_microphone', 'granted');
       const recorder = new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       
@@ -697,7 +704,8 @@ export function LiveMessaging({
 
     } catch (err) {
       console.error('Microphone access denied:', err);
-      showToast('Microphone access is required to record voice notes.', 'error');
+      localStorage.removeItem('sweety_perm_microphone');
+      showToast('Microphone access denied. Please allow microphone in browser settings.', 'error');
     }
   };
 
