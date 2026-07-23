@@ -2,7 +2,7 @@ import { getApiUrl } from "../lib/apiConfig";
 import { uploadFile } from "./storageHelper";
 import { auth, db, storage } from '../firebase';
 import { doc, setDoc, deleteDoc, getDoc, collection, query, where, getDocs, serverTimestamp, addDoc, orderBy, limit, updateDoc, arrayUnion } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
 
 export enum OperationType {
   CREATE = 'create',
@@ -68,7 +68,7 @@ export const uploadStory = async (userId: string, file: File, onProgress?: (p: n
   const ext = file.name.split('.').pop() || 'bin';
   const path = `stories/${userId}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
   
-  const mediaURL = await uploadFile(file, path, onProgress);
+  const mediaURL = await uploadFile(file, path, { onProgress, compressImages: true });
   
   await addDoc(collection(db, 'stories'), {
     userId,

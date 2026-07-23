@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { captureScreenSnapshot, startScreenStream, stopActiveScreenStream, getActiveScreenStream, subscribeToScreenStream } from '../lib/screenCapture';
 import { GoogleGenAI } from '@google/genai';
+import ReactMarkdown from 'react-markdown';
 import { useLiveSettings } from '../lib/useLiveSettings';
 import { db } from '../firebase';
 import { 
@@ -633,14 +634,26 @@ RESPONSE STYLE: Be EXTREMELY fast, brief, snappy, and concise. Keep your respons
           try {
             const { GoogleGenAI } = await import('@google/genai');
             const ai = new GoogleGenAI({ apiKey: clientKey });
-            const result = await ai.models.generateContent({
-              model: "gemini-2.5-flash",
-              contents,
-              config: {
-                systemInstruction: systemInstruction || undefined,
-                temperature: 0.4,
-              }
-            });
+            let result;
+            try {
+              result = await ai.models.generateContent({
+                model: "gemini-flash-latest",
+                contents,
+                config: {
+                  systemInstruction: systemInstruction || undefined,
+                  temperature: 0.4,
+                }
+              });
+            } catch (err36) {
+              result = await ai.models.generateContent({
+                model: "gemini-3.1-pro-preview",
+                contents,
+                config: {
+                  systemInstruction: systemInstruction || undefined,
+                  temperature: 0.4,
+                }
+              });
+            }
             if (result && result.text) {
               updateAssistantMessage(result.text);
               directSuccess = true;
@@ -1008,7 +1021,9 @@ RESPONSE STYLE: Be EXTREMELY fast, brief, snappy, and concise. Keep your respons
                         <span>{m.attachment.name}</span>
                       </div>
                     )}
-                    {m.text}
+                    <div className="markdown-body prose prose-invert max-w-none text-xs">
+                      <ReactMarkdown>{m.text}</ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               </div>

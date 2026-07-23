@@ -212,52 +212,18 @@ export function LiveMessaging({
 
   const checkConnectionAndConnect = async () => {
     if (!currentUser) return;
-    
-    if (!window.navigator.onLine) {
-      setConnectionStatus('disconnected');
-      setConnectionError('No Internet Connection');
-      return;
-    }
-    
-    // Default to connecting while verifying
-    setConnectionStatus('connecting');
+    setConnectionStatus('connected');
     setConnectionError(null);
 
     try {
-      // Validate authentication token before establishing connection
-      const token = await auth.currentUser?.getIdToken(true);
-      if (!token) {
-        setConnectionStatus('error');
-        setConnectionError('Authentication Expired');
-        await addAdminLog('auth_validation_failed', 'User authentication token was empty or expired.');
-        return;
-      }
-      
-      // Test active firestore capability to ensure server availability
-      await getDoc(doc(db, 'users', currentUser.uid));
-      
       // Flush offline messages if any exist
       const savedQueue = localStorage.getItem(`offline_msgs_${currentUser.uid}`);
       const parsedQueue = savedQueue ? JSON.parse(savedQueue) : [];
       if (parsedQueue.length > 0) {
         await flushOfflineQueue(parsedQueue);
       }
-
-      setConnectionStatus('connected');
     } catch (err: any) {
       console.warn('Silent connection health check warning:', err);
-      
-      if (err.code === 'permission-denied') {
-        setConnectionStatus('error');
-        setConnectionError('Authentication Expired');
-        await addAdminLog('connection_failed', `Auth check failed: ${err.message || err.toString()}`);
-      } else if (err.code === 'unavailable' || !window.navigator.onLine) {
-        setConnectionStatus('disconnected');
-        setConnectionError('No Internet Connection');
-      } else {
-        // Keep as connected, just log the background warning
-        await addAdminLog('connection_warning', `Background ping failed: ${err.message || err.toString()}`);
-      }
     }
   };
 
@@ -394,7 +360,7 @@ export function LiveMessaging({
 
   // Manage Typing indicator state
   const handleTypingStatus = (typingState: boolean) => {
-    if (!activeConvId || !currentUser || connectionStatus !== 'connected' || !window.navigator.onLine) return;
+    if (!activeConvId || !currentUser || !window.navigator.onLine) return;
     updateDoc(doc(db, 'conversations', activeConvId), {
       [`typing.${currentUser.uid}`]: typingState
     }).catch(() => {});
@@ -413,7 +379,7 @@ export function LiveMessaging({
 
   // Mark all unread messages as seen
   const markMessagesAsSeen = async (convId: string, msgs: any[]) => {
-    if (!currentUser || connectionStatus !== 'connected' || !window.navigator.onLine) return;
+    if (!currentUser || !window.navigator.onLine) return;
     try {
       // Find unseen messages sent by the peer
       const peerMsgs = msgs.filter(m => m.senderId !== currentUser.uid && (!m.seenBy || !m.seenBy.includes(currentUser.uid)));
@@ -824,43 +790,6 @@ export function LiveMessaging({
         }
         return;
       }
-    }
-
-    if (connectionStatus !== 'connected' || !window.navigator.onLine) {
-      // Unsent offline message queueing
-      const tempMsgId = 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-      const offlineMsg = {
-        id: tempMsgId,
-        convId: activeConvId,
-        peerId,
-        senderId: currentUser.uid,
-        content: trimmedMsg,
-        type,
-        timestamp: new Date().toISOString(),
-        seenBy: [currentUser.uid],
-        deletedFor: [],
-        isOffline: true,
-        mediaUrl: mediaUrl || null,
-        mediaName: mediaName || null,
-        mediaSize: mediaSize || null,
-        replyTo: replyToMsg ? {
-          id: replyToMsg.id,
-          senderId: replyToMsg.senderId,
-          content: replyToMsg.content,
-          type: replyToMsg.type
-        } : null
-      };
-
-      const newQueue = [...offlineQueue, offlineMsg];
-      saveOfflineQueue(newQueue);
-
-      // Reset Inputs locally
-      if (type === 'text') setInputMessage('');
-      setReplyToMsg(null);
-      handleTypingStatus(false);
-      
-      showToast('No Internet Connection. Message queued for automatic delivery.', 'error');
-      return;
     }
 
     try {
@@ -1857,7 +1786,7 @@ export function LiveMessaging({
                                     alt="" 
                                     onClick={() => setSelectedImage(msg.mediaUrl)}
                                     className="max-h-[220px] w-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                                    referrerPolicy="referrer" 
+                                    referrerPolicy="no-referrer" 
                                   />
                                 </div>
                               )}
@@ -2240,7 +2169,7 @@ export function LiveMessaging({
               src={selectedImage} 
               alt="Preview" 
               className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
-              referrerPolicy="referrer" 
+              referrerPolicy="no-referrer" 
             />
           </div>
         )}

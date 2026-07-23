@@ -28,8 +28,8 @@ export function AboutUs({ isAdmin, addSystemLog }: { isAdmin: boolean; addSystem
       const merged = {
         ...data,
         ...appSettings,
-        email: appSettings.contactEmail || appSettings.email || data.email,
-        description: appSettings.aboutPageContent || appSettings.appDescription || appSettings.description || data.description,
+        email: appSettings.contactEmail || data.email,
+        description: appSettings.aboutPageContent || appSettings.appDescription || data.description,
       };
       setData(merged);
       setEditData(merged);
@@ -98,7 +98,7 @@ export function AboutUs({ isAdmin, addSystemLog }: { isAdmin: boolean; addSystem
           
           <div className="w-24 h-24 mx-auto bg-gradient-to-tr from-pink-500 to-indigo-500 rounded-full flex items-center justify-center p-1 shadow-[0_0_40px_rgba(236,72,153,0.3)] mb-6">
             <div className="w-full h-full bg-slate-950 rounded-full flex items-center justify-center overflow-hidden border-2 border-slate-950">
-              {data.appLogoUrl || data.logoUrl ? <img src={data.appLogoUrl || data.logoUrl} className="w-full h-full object-cover" /> : <Shield className="w-10 h-10 text-pink-400" />}
+              {(data as any).appLogoUrl || data.logoUrl ? <img src={(data as any).appLogoUrl || data.logoUrl} className="w-full h-full object-cover" /> : <Shield className="w-10 h-10 text-pink-400" />}
             </div>
           </div>
           
@@ -107,7 +107,7 @@ export function AboutUs({ isAdmin, addSystemLog }: { isAdmin: boolean; addSystem
             Version {data.version}
           </div>
           
-          <p className="text-gray-300 leading-relaxed mb-8 max-w-md mx-auto">{data.aboutPageContent || data.appDescription || data.description}</p>
+          <p className="text-gray-300 leading-relaxed mb-8 max-w-md mx-auto">{(data as any).aboutPageContent || (data as any).appDescription || data.description}</p>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
             <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">

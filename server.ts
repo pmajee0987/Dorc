@@ -310,8 +310,8 @@ async function createServer() {
       else if (quality === "2K") resolvedSize = "2K";
       else if (quality === "4K") resolvedSize = "4K";
 
-      // Use gemini-3.1-flash-lite-image
-      const modelName = 'gemini-3.1-flash-lite-image';
+      // Use gemini-flash-latest for high speed
+      const modelName = 'gemini-flash-latest';
 
       const numImages = Math.max(1, Math.min(4, count || 1));
       const imageResults: string[] = [];
@@ -380,7 +380,7 @@ async function createServer() {
 
       const ai = getGenAI();
       const response = await fetchWithRetry(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-flash-latest",
         contents: message,
       }));
 
@@ -425,15 +425,29 @@ async function createServer() {
           return;
         }
 
-        const streamResponse = await fetchWithRetry(() => ai.models.generateContentStream({
-          model: "gemini-3.5-flash",
-          contents,
-          config: {
-            systemInstruction: systemInstruction || undefined,
-            temperature: 0.4,
-            tools: tools || undefined
-          }
-        }));
+        let streamResponse;
+        try {
+          streamResponse = await fetchWithRetry(() => ai.models.generateContentStream({
+            model: "gemini-flash-latest",
+            contents,
+            config: {
+              systemInstruction: systemInstruction || undefined,
+              temperature: 0.4,
+              tools: tools || undefined
+            }
+          }));
+        } catch (modelErr) {
+          console.warn('gemini-flash-latest streaming error, falling back to gemini-3.1-pro-preview:', modelErr);
+          streamResponse = await fetchWithRetry(() => ai.models.generateContentStream({
+            model: "gemini-3.1-pro-preview",
+            contents,
+            config: {
+              systemInstruction: systemInstruction || undefined,
+              temperature: 0.4,
+              tools: tools || undefined
+            }
+          }));
+        }
 
         let fullText = "";
         for await (const chunk of streamResponse) {
@@ -457,15 +471,29 @@ async function createServer() {
           res.json({ reply: cached });
           return;
         }
-        const response = await fetchWithRetry(() => ai.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents,
-          config: {
-            systemInstruction: systemInstruction || undefined,
-            temperature: 0.4,
-            tools: tools || undefined
-          }
-        }));
+        let response;
+        try {
+          response = await fetchWithRetry(() => ai.models.generateContent({
+            model: "gemini-flash-latest",
+            contents,
+            config: {
+              systemInstruction: systemInstruction || undefined,
+              temperature: 0.4,
+              tools: tools || undefined
+            }
+          }));
+        } catch (modelErr) {
+          console.warn('gemini-flash-latest error, falling back to gemini-3.1-pro-preview:', modelErr);
+          response = await fetchWithRetry(() => ai.models.generateContent({
+            model: "gemini-3.1-pro-preview",
+            contents,
+            config: {
+              systemInstruction: systemInstruction || undefined,
+              temperature: 0.4,
+              tools: tools || undefined
+            }
+          }));
+        }
 
         const calls = response.functionCalls;
         const responseText = response.text;

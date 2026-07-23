@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { db, storage } from '../../firebase';
 import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { uploadFile } from '../../lib/storageHelper';
 import { Newspaper, Plus, Trash2, Edit3, X, Image as ImageIcon, FileText, Link as LinkIcon, MessageSquare, ThumbsUp, Heart, Share2, MoreVertical, Search, Globe, Lock, CheckCircle2, Send, Video, ExternalLink } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -143,9 +144,8 @@ export function NewsFeedManager() {
     setUploading(type);
     try {
       const urls = await Promise.all(Array.from(files).map(async (file: File) => {
-        const storageRef = ref(storage, `news_feed/${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
-        return getDownloadURL(storageRef);
+        const isImage = file.type.startsWith('image/');
+        return await uploadFile(file, `news_feed/${Date.now()}_${file.name}`, { compressImages: type === 'media' && isImage });
       }));
       setForm(prev => ({ ...prev, [`${type}Urls`]: [...(prev as any)[`${type}Urls`], ...urls] }));
     } catch (err) { console.error(err); } finally { setUploading(null); }
@@ -191,9 +191,17 @@ export function NewsFeedManager() {
              
              {item.mediaUrls?.length > 0 && (
                <div className={`grid gap-2 mt-4 ${item.mediaUrls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-                 {item.mediaUrls.map((url: string, i: number) => (
-                   <img key={i} src={url} alt="" className="w-full h-48 object-cover rounded-2xl" />
-                 ))}
+                 {item.mediaUrls.map((url: string, i: number) => {
+                   const isVideo = url.includes('.mp4') || url.includes('.mov') || url.includes('.webm') || url.includes('video');
+                   if (isVideo) {
+                     return (
+                       <video key={i} src={url} controls className="w-full h-48 object-cover rounded-2xl bg-black" />
+                     );
+                   }
+                   return (
+                     <img key={i} src={url} alt="" className="w-full h-48 object-cover rounded-2xl" />
+                   );
+                 })}
                </div>
              )}
 
@@ -223,9 +231,9 @@ export function NewsFeedManager() {
 
                 <div className="flex flex-wrap gap-4 p-4 bg-white/5 rounded-2xl border border-white/5">
                    <label className="cursor-pointer group flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl hover:bg-emerald-500/20 hover:text-emerald-400 transition-all text-xs font-bold text-gray-400">
-                     <input type="file" multiple accept="image/*" className="hidden" onChange={e => handleFileUpload(e, 'media')} />
+                     <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={e => handleFileUpload(e, 'media')} />
                      {uploading === 'media' ? <div className="animate-spin h-4 w-4 border-2 border-emerald-500 border-t-transparent rounded-full" /> : <ImageIcon size={16} />}
-                     Photos
+                     Media
                    </label>
                    <label className="cursor-pointer group flex items-center gap-2 px-4 py-2 bg-white/5 rounded-xl hover:bg-indigo-500/20 hover:text-indigo-400 transition-all text-xs font-bold text-gray-400">
                      <input type="file" multiple className="hidden" onChange={e => handleFileUpload(e, 'file')} />
@@ -236,12 +244,19 @@ export function NewsFeedManager() {
 
                 {form.mediaUrls.length > 0 && (
                   <div className="grid grid-cols-4 gap-2">
-                    {form.mediaUrls.map((url, i) => (
-                      <div key={i} className="relative group">
-                         <img src={url} alt="" className="w-full h-16 object-cover rounded-lg" />
-                         <button type="button" onClick={() => setForm({...form, mediaUrls: form.mediaUrls.filter((_, idx) => idx !== i)})} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100"><X size={10} /></button>
-                      </div>
-                    ))}
+                    {form.mediaUrls.map((url, i) => {
+                      const isVideo = url.includes('.mp4') || url.includes('.mov') || url.includes('.webm') || url.includes('video');
+                      return (
+                        <div key={i} className="relative group">
+                           {isVideo ? (
+                             <video src={url} className="w-full h-16 object-cover rounded-lg bg-black" />
+                           ) : (
+                             <img src={url} alt="" className="w-full h-16 object-cover rounded-lg" />
+                           )}
+                           <button type="button" onClick={() => setForm({...form, mediaUrls: form.mediaUrls.filter((_, idx) => idx !== i)})} className="absolute -top-2 -right-2 p-1 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100"><X size={10} /></button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 

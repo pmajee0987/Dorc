@@ -3,6 +3,21 @@ import { users } from './schema.ts';
 import { eq } from 'drizzle-orm';
 
 export async function getOrCreateUser(uid: string, email: string, fullName?: string, username?: string, avatarUrl?: string) {
+  if (!process.env.SQL_HOST || !process.env.SQL_USER) {
+    return {
+      id: 1,
+      uid,
+      email,
+      fullName: fullName || 'User',
+      username: username || uid.substring(0, 8),
+      avatarUrl: avatarUrl || null,
+      fcmToken: null,
+      isPremium: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  }
+
   try {
     const result = await db.insert(users)
       .values({
@@ -43,6 +58,9 @@ export async function getOrCreateUser(uid: string, email: string, fullName?: str
 }
 
 export async function getUserByUid(uid: string) {
+  if (!process.env.SQL_HOST || !process.env.SQL_USER) {
+    return null;
+  }
   try {
     const result = await db.select().from(users).where(eq(users.uid, uid));
     return result[0] || null;

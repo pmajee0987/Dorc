@@ -227,7 +227,7 @@ export function ContentExplorer({ currentUser, userProfile }: ContentExplorerPro
                 <div className="col-span-full py-12 text-center text-gray-400 bg-white/5 rounded-3xl border border-white/10">No content available in this section.</div>
               ) : (
                 content.map(item => (
-                  <div key={item.id} className="p-5 rounded-3xl bg-gradient-to-r from-slate-900 to-slate-800 border border-white/10 flex flex-col justify-between gap-4">
+                  <div key={item.id} className="p-5 rounded-3xl bg-gradient-to-r from-slate-900 to-slate-800 border border-white/10 flex flex-col justify-between gap-4 overflow-hidden">
                     <div>
                       <div className="flex items-start justify-between">
                         <h3 className="font-bold text-lg text-white mb-2 pr-8">{item.title}</h3>
@@ -237,10 +237,23 @@ export function ContentExplorer({ currentUser, userProfile }: ContentExplorerPro
                       </div>
                       {item.topic && <p className="text-xs text-gray-400 mb-2">Topic: {item.topic}</p>}
                       {item.description && <p className="text-sm text-gray-300 mb-4">{item.description}</p>}
+                      
+                      {/* Media Viewer */}
+                      {(item.fileUrl || item.downloadUrl) && (
+                        <div className="mb-4 rounded-xl overflow-hidden bg-black/40 border border-white/5 relative group">
+                           {(item.mediaType?.startsWith('image/') || viewState.selectedType === 'Images') ? (
+                              <img src={item.downloadUrl || item.fileUrl} alt={item.title} className="w-full h-48 object-cover cursor-pointer hover:scale-105 transition-transform" onClick={() => window.open(item.downloadUrl || item.fileUrl, '_blank')} referrerPolicy="no-referrer" />
+                           ) : (item.mediaType?.startsWith('video/') || viewState.selectedType === 'Videos') ? (
+                              <video src={item.downloadUrl || item.fileUrl} controls className="w-full max-h-64 outline-none" preload="metadata" />
+                           ) : (item.mediaType?.startsWith('audio/') || viewState.selectedType === 'Audio') ? (
+                              <audio src={item.downloadUrl || item.fileUrl} controls className="w-full mt-2" preload="metadata" />
+                           ) : null}
+                        </div>
+                      )}
                     </div>
-                    {item.fileUrl && (
-                      <a href={item.fileUrl} target="_blank" rel="noreferrer" className="bg-indigo-500 hover:bg-indigo-400 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors self-start">
-                        <Download size={14} /> Open / Download
+                    {(item.fileUrl || item.downloadUrl) && (
+                      <a href={item.downloadUrl || item.fileUrl} target="_blank" rel="noreferrer" className="bg-indigo-500 hover:bg-indigo-400 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-colors self-start w-full sm:w-auto">
+                        <Download size={14} /> {(item.mediaType?.startsWith('image') || viewState.selectedType === 'Images' || item.mediaType?.startsWith('video') || viewState.selectedType === 'Videos') ? 'View Full Screen' : 'Download File'}
                       </a>
                     )}
                   </div>

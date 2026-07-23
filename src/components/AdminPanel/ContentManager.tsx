@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { db } from '../../firebase';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, query, orderBy } from 'firebase/firestore';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { db, auth } from '../../firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { uploadFile, deleteFile } from '../../lib/storageHelper';
-import { Upload, X, File, Image as ImageIcon, FileText, Video, Headphones, CheckCircle, Trash2, Edit } from 'lucide-react';
+import { Upload, X, File, Image as ImageIcon, FileText, Video, Headphones, CheckCircle, Trash2, Edit, AlertCircle, XCircle } from 'lucide-react';
+import type { UploadTask } from 'firebase/storage';
 
 export function ContentManager() {
   const [activeTab, setActiveTab] = useState('notes');
@@ -13,9 +14,14 @@ export function ContentManager() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadState, setUploadState] = useState('');
+  const [uploadError, setUploadError] = useState('');
+  
+  const currentUploadTask = useRef<UploadTask | null>(null);
 
   const [formData, setFormData] = useState({
     title: '',
+    description: '',
     class: '',
     board: '',
     stream: '',
@@ -51,59 +57,104 @@ export function ContentManager() {
       setData(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     }, (err) => {
-      console.warn("Error fetching data, using blank", err);
-      // Fallback
+      console.warn("Error fetching data", err);
       setData([]);
       setLoading(false);
     });
     return () => unsub();
   }, [activeTab]);
 
+  const handleCancelUpload = () => {
+    if (currentUploadTask.current) {
+      currentUploadTask.current.cancel();
+      setUploading(false);
+      setUploadError('Upload canceled by user');
+      setUploadProgress(0);
+      setUploadState('');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setUploading(true);
+    setUploadError('');
+    setUploadProgress(0);
+    setUploadState('Starting...');
     
     try {
       let finalFileUrl = formData.fileUrl;
       let finalFileName = formData.fileName;
+      let finalMediaType = 'unknown';
 
       if (fileToUpload) {
+        if (fileToUpload.size > 500 * 1024 * 1024) {
+          throw new Error('File too large (max 500MB)');
+        }
+
         const ext = fileToUpload.name.split('.').pop();
         const path = `admin_content/${activeTab}/${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
-        finalFileUrl = await uploadFile(fileToUpload, path, (p) => setUploadProgress(p));
+        
+        finalMediaType = fileToUpload.type || 'unknown';
+        
+        finalFileUrl = await uploadFile(fileToUpload, path, {
+          onProgress: (p) => setUploadProgress(p),
+          onStateChange: (s) => setUploadState(s),
+          onTaskReady: (task) => { currentUploadTask.current = task; },
+          compressImages: true
+        });
+        
         finalFileName = fileToUpload.name;
       }
 
       await addDoc(collection(db, currentTab.collection), {
-        ...formData,
-        fileUrl: finalFileUrl,
+        title: formData.title,
+        description: formData.description || '',
+        mediaType: finalMediaType,
+        downloadUrl: finalFileUrl,
+        fileUrl: finalFileUrl, // keeping for backwards compatibility
         fileName: finalFileName,
-        createdAt: new Date().toISOString()
+        uploader: auth.currentUser?.uid || 'admin',
+        class: formData.class,
+        board: formData.board,
+        stream: formData.stream,
+        subject: formData.subject,
+        chapter: formData.chapter,
+        topic: formData.topic,
+        createdAt: serverTimestamp(),
       });
 
       setIsFormOpen(false);
-      setFormData({ title: '', class: '', board: '', stream: '', subject: '', chapter: '', topic: '', fileUrl: '', fileName: '' });
+      setFormData({ title: '', description: '', class: '', board: '', stream: '', subject: '', chapter: '', topic: '', fileUrl: '', fileName: '' });
       setFileToUpload(null);
       setUploadProgress(0);
-    } catch (err) {
+      setUploadState('');
+      currentUploadTask.current = null;
+      alert("Successfully uploaded!");
+    } catch (err: any) {
       console.error(err);
-      alert("Failed to upload content");
+      if (err.message !== 'Upload was canceled.') {
+        setUploadError(err.message || 'Failed to upload content');
+      }
     } finally {
-      setUploading(false);
+      if (currentUploadTask.current) {
+        setUploading(false);
+      }
     }
   };
 
   const handleDelete = async (item: any) => {
-    if (!window.confirm("Are you sure?")) return;
+    if (!window.confirm("Are you sure? This will delete the file permanently.")) return;
     try {
       await deleteDoc(doc(db, currentTab.collection, item.id));
-      // Try to delete the file if it's from our storage
-      if (item.fileUrl && item.fileUrl.includes('firebasestorage')) {
-        // We'd parse the path in a real app, but this requires parsing the tokenized URL.
-        // For simplicity, we just delete the doc.
+      if (item.fileUrl) {
+        await deleteFile(item.fileUrl);
+      }
+      if (item.downloadUrl && item.downloadUrl !== item.fileUrl) {
+        await deleteFile(item.downloadUrl);
       }
     } catch (e) {
-      console.error(e);
+      console.error('Delete error', e);
+      alert('Failed to delete completely');
     }
   };
 
@@ -167,24 +218,47 @@ export function ContentManager() {
                 <input value={formData.chapter} onChange={e => setFormData({...formData, chapter: e.target.value})} className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-3 text-sm mt-1" />
               </div>
               <div className="md:col-span-2">
+                <label className="text-xs font-bold text-gray-400 uppercase">Description / Details</label>
+                <textarea rows={2} value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-3 text-sm mt-1" />
+              </div>
+              <div className="md:col-span-2">
                 <label className="text-xs font-bold text-gray-400 uppercase">Topic</label>
                 <input value={formData.topic} onChange={e => setFormData({...formData, topic: e.target.value})} className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-3 text-sm mt-1" />
               </div>
               <div className="md:col-span-2">
                 <label className="text-xs font-bold text-gray-400 uppercase">Select File</label>
-                <input type="file" accept={currentTab.accept} onChange={e => setFileToUpload(e.target.files?.[0] || null)} className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-3 text-sm mt-1 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-500/20 file:text-indigo-400 hover:file:bg-indigo-500/30" />
+                <input type="file" accept={currentTab.accept} onChange={e => setFileToUpload(e.target.files?.[0] || null)} disabled={uploading} className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-3 text-sm mt-1 text-white file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-indigo-500/20 file:text-indigo-400 hover:file:bg-indigo-500/30" />
+                <p className="text-[10px] text-gray-500 mt-1">Max size: 500MB. Uses direct ArrayBuffer conversion for stability.</p>
               </div>
             </div>
             
+            {uploadError && (
+              <div className="flex items-center gap-2 p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-400 text-sm">
+                <AlertCircle size={16} />
+                <span>{uploadError}</span>
+              </div>
+            )}
+            
             {uploading && (
-              <div className="w-full bg-white/10 rounded-full h-2 mt-4 overflow-hidden">
-                <div className="bg-indigo-500 h-2 transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+              <div className="space-y-2 mt-4 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                <div className="flex justify-between text-xs font-bold text-gray-400">
+                  <span>{uploadState || 'Uploading...'}</span>
+                  <span>{Math.round(uploadProgress)}%</span>
+                </div>
+                <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden">
+                  <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${uploadProgress}%` }}></div>
+                </div>
+                <div className="flex justify-end pt-2">
+                  <button type="button" onClick={handleCancelUpload} className="text-xs flex items-center gap-1 text-rose-400 hover:text-rose-300 font-bold px-3 py-1 bg-rose-500/10 rounded-lg">
+                    <XCircle size={14} /> Cancel Upload
+                  </button>
+                </div>
               </div>
             )}
             
             <div className="flex gap-3 pt-4 border-t border-white/10">
-              <button type="submit" disabled={uploading || (!fileToUpload && !formData.fileUrl)} className="flex-1 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white px-4 py-3 rounded-xl font-bold transition-all">
-                {uploading ? `Uploading... ${Math.round(uploadProgress)}%` : 'Upload Content'}
+              <button type="submit" disabled={uploading || (!fileToUpload && !formData.fileUrl)} className="flex-1 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-lg">
+                {uploading ? 'Processing...' : `Upload to ${currentTab.label}`}
               </button>
             </div>
           </form>
@@ -200,18 +274,35 @@ export function ContentManager() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.map(item => (
-            <div key={item.id} className="bg-white/5 border border-white/10 rounded-2xl p-5 relative group">
-              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleDelete(item)} className="p-2 bg-rose-500/20 text-rose-400 rounded-lg hover:bg-rose-500 hover:text-white transition-all"><Trash2 size={16} /></button>
+            <div key={item.id} className="bg-white/5 border border-white/10 rounded-2xl p-5 relative group flex flex-col justify-between overflow-hidden">
+              <div>
+                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <button onClick={() => handleDelete(item)} className="p-2 bg-rose-500/20 text-rose-400 rounded-lg hover:bg-rose-500 hover:text-white transition-all shadow-md backdrop-blur-md"><Trash2 size={16} /></button>
+                </div>
+                <h3 className="font-bold text-lg text-white mb-2 pr-16 truncate">{item.title}</h3>
+                <div className="space-y-1 text-xs text-gray-400 mb-4">
+                  {item.class && <div><span className="font-semibold text-gray-300">Class:</span> {item.class}</div>}
+                  {item.subject && <div><span className="font-semibold text-gray-300">Subject:</span> {item.subject}</div>}
+                  {item.chapter && <div><span className="font-semibold text-gray-300">Chapter:</span> {item.chapter}</div>}
+                  {item.description && <div className="mt-2 line-clamp-2 italic">{item.description}</div>}
+                </div>
+                
+                {/* Media Preview inside Admin */}
+                {(item.downloadUrl || item.fileUrl) && (
+                  <div className="mb-4 rounded-xl overflow-hidden bg-black/40 border border-white/5">
+                     {(item.mediaType?.startsWith('image/') || currentTab.id === 'images') ? (
+                        <img src={item.downloadUrl || item.fileUrl} alt={item.title} className="w-full h-32 object-cover cursor-pointer hover:scale-105 transition-transform" onClick={() => window.open(item.downloadUrl || item.fileUrl, '_blank')} referrerPolicy="no-referrer" />
+                     ) : (item.mediaType?.startsWith('video/') || currentTab.id === 'videos') ? (
+                        <video src={item.downloadUrl || item.fileUrl} controls className="w-full max-h-32 outline-none" preload="metadata" />
+                     ) : (item.mediaType?.startsWith('audio/') || currentTab.id === 'audio') ? (
+                        <audio src={item.downloadUrl || item.fileUrl} controls className="w-full mt-2" preload="metadata" />
+                     ) : null}
+                  </div>
+                )}
               </div>
-              <h3 className="font-bold text-lg text-white mb-2 pr-16">{item.title}</h3>
-              <div className="space-y-1 text-xs text-gray-400 mb-4">
-                {item.class && <div><span className="font-semibold text-gray-300">Class:</span> {item.class}</div>}
-                {item.subject && <div><span className="font-semibold text-gray-300">Subject:</span> {item.subject}</div>}
-                {item.chapter && <div><span className="font-semibold text-gray-300">Chapter:</span> {item.chapter}</div>}
-              </div>
-              {item.fileUrl && (
-                <a href={item.fileUrl} target="_blank" rel="noreferrer" download={item.fileName || true} className="inline-flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-sm font-bold">
+
+              {(item.downloadUrl || item.fileUrl) && (
+                <a href={item.downloadUrl || item.fileUrl} target="_blank" rel="noreferrer" download={item.fileName || true} className="inline-flex items-center gap-2 text-indigo-400 hover:text-indigo-300 text-sm font-bold bg-indigo-500/10 px-3 py-2 rounded-lg self-start">
                   View / Download <Upload size={14} className="rotate-45" />
                 </a>
               )}

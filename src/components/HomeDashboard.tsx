@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit, doc, updateDoc, increment } from 'firebase/firestore';
 import { 
   BookOpen, Flame, CheckCircle, Clock, Play, GraduationCap, FileText, 
   Award, TrendingUp, Calendar, ChevronRight, Activity, Sparkles, BookMarked,
   Volume2, Shield, User, ArrowRight, Video, Calculator, BrainCircuit, Palette, CheckCircle2, AlertCircle, Bookmark, Megaphone, Menu,
-  Smartphone, Battery, Wifi, HardDrive, AlarmClock, Music, Camera, FolderOpen
+  Smartphone, Battery, Wifi, HardDrive, AlarmClock, Music, Camera, FolderOpen, ExternalLink, Newspaper, Link as LinkIcon, Image as ImageIcon
 } from 'lucide-react';
 import { Routine, AppLanguage } from '../types';
+import { NewsFeed } from './NewsFeed';
 import { useLiveSettings } from '../lib/useLiveSettings';
 
 interface HomeDashboardProps {
@@ -184,13 +185,20 @@ export function HomeDashboard({
   const { appSettings } = useLiveSettings();
   const dt = DASH_TRANSLATIONS[language] || DASH_TRANSLATIONS.English;
   const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [banners, setBanners] = useState<any[]>([]);
 
   useEffect(() => {
     const q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'), limit(3));
     const unsub = onSnapshot(q, snap => {
       setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     }, (err) => { console.warn("Announcements sync delayed:", err); });
-    return () => unsub();
+
+    const qBanners = query(collection(db, 'banners'), orderBy('createdAt', 'desc'));
+    const unsubBanners = onSnapshot(qBanners, snap => {
+      setBanners(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter((b: any) => b.isActive));
+    }, (err) => { console.warn("Banners sync delayed:", err); });
+
+    return () => { unsub(); unsubBanners(); };
   }, []);
 
   // --- Dynamic Stats Computations ---
@@ -340,6 +348,36 @@ export function HomeDashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Active Banners / Ads */}
+      {banners.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {banners.map((item, idx) => (
+            <motion.div 
+              key={idx}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: idx * 0.1 }}
+              className={`relative overflow-hidden rounded-3xl h-40 bg-gradient-to-br ${item.gradient || 'from-indigo-600 to-pink-600'} cursor-pointer group shadow-xl border border-white/10`}
+              onClick={() => item.deepLink && window.open(item.deepLink, '_blank')}
+            >
+              {item.mediaType === 'video' ? (
+                <video src={item.videoUrl} autoPlay muted loop playsInline className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-60 group-hover:scale-105 transition-transform duration-500" />
+              ) : (
+                item.imageUrl && (
+                  <img src={item.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover mix-blend-overlay opacity-80 group-hover:scale-105 transition-transform duration-500" />
+                )
+              )}
+              <div className="absolute inset-0 p-6 flex flex-col justify-end bg-gradient-to-t from-black/80 via-black/20 to-transparent">
+                <div className="text-white text-[10px] font-black uppercase tracking-widest mb-1 opacity-80 flex items-center gap-1">
+                   <Sparkles size={10} className="text-amber-400" /> Featured
+                </div>
+                <h3 className="text-xl md:text-2xl font-black text-white">{item.buttonText}</h3>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
 
       {/* 2. Audio/Voice Assistant Quick Card */}
       <motion.div
@@ -516,6 +554,17 @@ export function HomeDashboard({
             {dt.openPlanner}
           </button>
         </motion.div>
+      </div>
+
+      {/* News Feed / Updates Section */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+            <Newspaper size={20} /> Notice Board
+          </h3>
+          <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Latest from Admin</span>
+        </div>
+        <NewsFeed maxPosts={3} />
       </div>
 
       {/* 4. Bento Grid: Subjects & Quick Tools */}

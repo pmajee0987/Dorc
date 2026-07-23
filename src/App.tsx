@@ -4,7 +4,7 @@ import { getApiUrl } from "./lib/apiConfig";
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Fragment, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Mic, MicOff, Power, Globe, Monitor, Settings, MoreVertical, Battery, Shield, X, Lock, Unlock, Key, Terminal, AlertTriangle, Check, ShieldAlert, Mail, MessageSquare, MessageCircle, BookOpen, User, Home, GraduationCap, Users, Activity, Palette, LogOut, Calendar, Bell, VolumeX, AlertCircle, Play, Clock, Info, Sparkles, CheckCircle } from 'lucide-react';
 import { UserProfileModal } from './components/UserProfileModal';
@@ -13,22 +13,30 @@ import { syncUserProfile } from './lib/profileSync';
 import { GoogleGenAI, Modality, LiveServerMessage, Type } from "@google/genai";
 import { CherryBlossomRain } from './components/CherryBlossomRain';
 import { auth, db } from './firebase';
-import { NavigationDrawer } from './components/NavigationDrawer';
-import { StoriesPage } from './components/StoriesPage';
-import { FollowersPage } from './components/FollowersPage';
-import { CallManager } from './components/CallManager';
-import { HomeDashboard } from './components/HomeDashboard';
-import { LearnCenter } from './components/LearnCenter';
-import { AIChatRoom } from './components/AIChatRoom';
-import { Settings as UserProfileSettings } from './components/Settings';
-import { PremiumUpgradeModal } from './components/PremiumUpgradeModal';
-import { ContentExplorer } from './components/ContentExplorer';
-import { Announcements } from './components/Announcements';
-import { Notifications } from './components/Notifications';
-import { SearchPage } from './components/SearchPage';
-import { AdminDashboard } from './components/AdminPanel';
-import { AdminLogin } from './components/AdminLogin';
-import { AboutUs } from './components/AboutUs';
+
+// Lazy load heavy components
+const NavigationDrawer = lazy(() => import('./components/NavigationDrawer').then(m => ({ default: m.NavigationDrawer })));
+const StoriesPage = lazy(() => import('./components/StoriesPage').then(m => ({ default: m.StoriesPage })));
+const FollowersPage = lazy(() => import('./components/FollowersPage').then(m => ({ default: m.FollowersPage })));
+const CallManager = lazy(() => import('./components/CallManager').then(m => ({ default: m.CallManager })));
+const HomeDashboard = lazy(() => import('./components/HomeDashboard').then(m => ({ default: m.HomeDashboard })));
+const LearnCenter = lazy(() => import('./components/LearnCenter').then(m => ({ default: m.LearnCenter })));
+const AIChatRoom = lazy(() => import('./components/AIChatRoom').then(m => ({ default: m.AIChatRoom })));
+const UserProfileSettings = lazy(() => import('./components/Settings').then(m => ({ default: m.Settings })));
+const PremiumUpgradeModal = lazy(() => import('./components/PremiumUpgradeModal').then(m => ({ default: m.PremiumUpgradeModal })));
+const ContentExplorer = lazy(() => import('./components/ContentExplorer').then(m => ({ default: m.ContentExplorer })));
+const Announcements = lazy(() => import('./components/Announcements').then(m => ({ default: m.Announcements })));
+const Notifications = lazy(() => import('./components/Notifications').then(m => ({ default: m.Notifications })));
+const SearchPage = lazy(() => import('./components/SearchPage').then(m => ({ default: m.SearchPage })));
+const AdminDashboard = lazy(() => import('./components/AdminPanel').then(m => ({ default: m.AdminDashboard })));
+const AdminLogin = lazy(() => import('./components/AdminLogin').then(m => ({ default: m.AdminLogin })));
+const AboutUs = lazy(() => import('./components/AboutUs').then(m => ({ default: m.AboutUs })));
+const AIImageStudio = lazy(() => import('./components/AIImageStudio').then(m => ({ default: m.AIImageStudio })));
+const StudyRoutine = lazy(() => import('./components/StudyRoutine').then(m => ({ default: m.StudyRoutine })));
+const FriendsPage = lazy(() => import('./components/FriendsPage').then(m => ({ default: m.FriendsPage })));
+const AppUpdateOverlay = lazy(() => import('./components/AppUpdateOverlay').then(m => ({ default: m.AppUpdateOverlay })));
+const PasswordResetModal = lazy(() => import('./components/PasswordResetModal').then(m => ({ default: m.PasswordResetModal })));
+
 import { ThemeApplier } from './components/ThemeApplier';
 import { useLiveSettings } from './lib/useLiveSettings';
 import { OnboardingForm } from './components/OnboardingForm';
@@ -37,17 +45,12 @@ import { PermissionOnboardingScreen } from './components/PermissionOnboardingScr
 import { ForceUsernameSetup } from './components/ForceUsernameSetup';
 import { PermissionPromptUI } from './components/PermissionPromptUI';
 import { permissionManager } from './lib/permissionManager';
-import { AIImageStudio } from './components/AIImageStudio';
-import { StudyRoutine } from './components/StudyRoutine';
 import { DeviceUtilityOverlay } from './components/DeviceUtilityOverlay';
 import { parseCurrentUITree, openAccessibilitySettings } from './lib/screenReading';
 import { LiveMessaging } from './components/LiveMessaging';
-import { FriendsPage } from './components/FriendsPage';
 import { Routine } from './types';
 import { processVoiceOrTextCommand } from './lib/routineCommands';
-import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, onSnapshot, addDoc, orderBy, limit } from 'firebase/firestore';
-import { AppUpdateOverlay } from './components/AppUpdateOverlay';
-import { PasswordResetModal } from './components/PasswordResetModal';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, onSnapshot, addDoc, orderBy, limit, getDocFromServer } from 'firebase/firestore';
 
 const CURRENT_VERSION_CODE = 1;
 import { captureScreenSnapshot, startScreenStream, stopActiveScreenStream, getActiveScreenStream, subscribeToScreenStream } from './lib/screenCapture';
@@ -248,6 +251,16 @@ const getExpressionColors = (exp: string, defaultTheme: any) => {
   }
 };
 
+// Loading Fallback Component
+const LoadingFallback = () => (
+  <div className="flex-1 flex items-center justify-center p-12 min-h-[200px]">
+    <div className="flex flex-col items-center gap-4">
+      <div className="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+      <p className="text-indigo-400 font-bold text-xs tracking-widest uppercase animate-pulse">Initializing Interface...</p>
+    </div>
+  </div>
+);
+
 function AuthHub({ 
   theme, 
   onUnlock,
@@ -261,7 +274,11 @@ function AuthHub({
   const [screen, setScreen] = useState<'welcome' | 'admin_login'>('welcome');
 
   if (screen === 'admin_login') {
-    return <AdminLogin onUnlock={(user) => { onUnlock(true, user); }} onCancel={() => setScreen('welcome')} />;
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <AdminLogin onUnlock={(user) => { onUnlock(true, user); }} onCancel={() => setScreen('welcome')} />
+      </Suspense>
+    );
   }
   const [passcode, setPasscode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -654,11 +671,13 @@ function AuthHub({
       {/* Password Reset Modal */}
       <AnimatePresence>
         {showResetModal && (
-          <PasswordResetModal
-            initialEmail={email}
-            onClose={() => setShowResetModal(false)}
-            onSuccess={(msg) => setSuccessMsg(msg)}
-          />
+          <Suspense fallback={null}>
+            <PasswordResetModal
+              initialEmail={email}
+              onClose={() => setShowResetModal(false)}
+              onSuccess={(msg) => setSuccessMsg(msg)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -851,10 +870,11 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState<{
     id: string;
     name: string;
-    args: any;
+    args?: any;
     title: string;
     description: string;
     onConfirm: () => any;
+    onCancel?: () => any;
   } | null>(null);
 
   const [systemLogs, setSystemLogs] = useState<string[]>([
@@ -910,8 +930,11 @@ export default function App() {
   const isUnlocked = isDevUnlocked || isAuthorizedDev;
   const isAppUnlocked = isUnlocked || (currentUser !== null);
 
-  const speakResponse = useCallback((text: string) => {
-    if (!('speechSynthesis' in window)) return;
+  const speakResponse = useCallback((text: string, onEnded?: () => void) => {
+    if (!('speechSynthesis' in window)) {
+      if (onEnded) onEnded();
+      return;
+    }
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     const lang = userProfile?.language || 'English';
@@ -924,6 +947,21 @@ export default function App() {
     }
     utterance.rate = 1.05;
     utterance.pitch = 1.15;
+
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (onEnded) onEnded();
+    };
+
+    utterance.onerror = () => {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      if (onEnded) onEnded();
+    };
+
+    setIsSpeaking(true);
+    isSpeakingRef.current = true;
     window.speechSynthesis.speak(utterance);
   }, [userProfile?.language]);
 
@@ -1265,108 +1303,117 @@ export default function App() {
       if (user) {
         setupPushNotifications();
         
-        // Sync user to Cloud SQL
-        try {
-          const token = await user.getIdToken();
-          await fetch(getApiUrl('/api/sync-user'), {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              fullName: user.displayName,
-              avatarUrl: user.photoURL
-            })
-          });
-        } catch (err) {
-          console.error('Failed to sync user to SQL:', err);
-        }
+        // Sync user to Cloud SQL - Background
+        (async () => {
+          try {
+            const token = await user.getIdToken();
+            await fetch(getApiUrl('/api/sync-user'), {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                fullName: user.displayName,
+                avatarUrl: user.photoURL
+              })
+            });
+          } catch (err) {
+            console.error('Failed to sync user to SQL:', err);
+          }
+        })();
 
         const todayStr = getTodayStr();
         const loginDocId = `${user.uid}_${todayStr}`;
         const isDevUser = user.email?.toLowerCase() === 'krishanumajeeff@gmail.com';
         
+        // Load User Profile and Chat History in parallel
         try {
           const userDocRef = doc(db, 'users', user.uid);
+          // Prefer getDoc (cached) for speed, fallback to getDocFromServer only if needed
           const docSnap = await getDoc(userDocRef);
+          
           let userRole: 'user' | 'admin' = isDevUser ? 'admin' : 'user';
           let onboardedStatus = false;
+          let profileData = null;
           
           if (docSnap.exists()) {
-            const data = docSnap.data();
+            profileData = docSnap.data();
             
-            // Priority check for admin override in DB
-            if (data.role === 'admin' || data.role === 'user') {
-              userRole = data.role;
+            if (profileData.role === 'admin' || profileData.role === 'user') {
+              userRole = profileData.role;
             } else if (isDevUser) {
               userRole = 'admin';
             }
             
-            // Robust check: if they have any of these, they are likely onboarded
-            // We use a more permissive check to ensure users aren't trapped in onboarding
-            onboardedStatus = data.hasOnboarded === true || 
-                             !!data.fullName || 
-                             !!data.username || 
-                             !!data.studentClass || 
-                             !!data.board ||
-                             !!data.onboarded;
+            onboardedStatus = profileData.hasOnboarded === true || 
+                             !!profileData.fullName || 
+                             !!profileData.username || 
+                             !!profileData.studentClass || 
+                             !!profileData.board ||
+                             !!profileData.onboarded;
             
-            setUserProfile(data);
-            if (data.theme && THEMES[data.theme as keyof typeof THEMES]) {
-              setCurrentTheme(data.theme as any);
-              localStorage.setItem('sweety_active_theme', data.theme);
+            // Set basic profile immediately
+            setUserProfile(profileData);
+
+            if (profileData.theme && THEMES[profileData.theme as keyof typeof THEMES]) {
+              setCurrentTheme(profileData.theme as any);
+              localStorage.setItem('sweety_active_theme', profileData.theme);
+            }
+
+            // Load chat history from the same snapshot
+            if (profileData.chatHistory && Array.isArray(profileData.chatHistory)) {
+              setChatHistory(profileData.chatHistory);
+              localStorage.setItem('sweety_chat_history', JSON.stringify(profileData.chatHistory));
+              addSystemLog(`[CLOUD] Restored ${profileData.chatHistory.length} turns of conversation history.`);
             }
           } else {
-            // Document doesn't exist, this is a brand new user
+            // New user skeleton
             onboardedStatus = false;
-            // Write initial user profile fields with a flag to prevent double onboarding
             const skeletonProfile = {
               uid: user.uid,
               email: user.email || '',
               role: userRole,
               hasOnboarded: false,
               createdAt: new Date().toISOString(),
-              lastActive: new Date().toISOString()
+              lastActive: new Date().toISOString(),
+              fullName: user.displayName || '',
+              avatarUrl: user.photoURL || ''
             };
-            // Attempt to create the document immediately to reserve the UID
-            await setDoc(doc(db, 'users', user.uid), skeletonProfile, { merge: true });
             setUserProfile(skeletonProfile);
+            profileData = skeletonProfile;
           }
 
           setCurrentUserRole(userRole);
           setHasOnboarded(onboardedStatus);
           setOnboardingStage(onboardedStatus ? 'done' : 'form');
 
-          await setDoc(doc(db, 'logins', loginDocId), {
-            uid: user.uid,
-            email: user.email || 'anonymous',
-            timestamp: new Date().toISOString(),
-            dateStr: todayStr,
-            role: userRole
-          }, { merge: true });
+          // Non-blocking updates (Background)
+          (async () => {
+            try {
+              const updateData = {
+                lastActive: new Date().toISOString(),
+                email: user.email || (profileData ? profileData.email : '') || '',
+                role: userRole
+              };
+              await setDoc(userDocRef, updateData, { merge: true });
+              
+              await setDoc(doc(db, 'logins', loginDocId), {
+                uid: user.uid,
+                email: user.email || 'anonymous',
+                timestamp: new Date().toISOString(),
+                dateStr: todayStr,
+                role: userRole
+              }, { merge: true });
+            } catch (bgErr) {
+              console.warn('Background profile update failed:', bgErr);
+            }
+          })();
+
         } catch (err) {
-          console.error('Error fetching/setting user profile:', err);
-          // Fallback safely to not block the user
+          console.error('Error in profile loading flow:', err);
           setCurrentUserRole(isDevUser ? 'admin' : 'user');
           setHasOnboarded(true);
-        }
-
-        addSystemLog(`[CLOUD] Syncing XPRO conversation memories from partition...`);
-        try {
-          const userDocRef = doc(db, 'users', user.uid);
-          const docSnap = await getDoc(userDocRef);
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (data.chatHistory && Array.isArray(data.chatHistory)) {
-              setChatHistory(data.chatHistory);
-              localStorage.setItem('sweety_chat_history', JSON.stringify(data.chatHistory));
-              addSystemLog(`[CLOUD] Restored ${data.chatHistory.length} turns of conversation history.`);
-            }
-          }
-        } catch (err: any) {
-          console.error('Error fetching chat history:', err);
-          addSystemLog(`[CLOUD_ERROR] Failed to load memories: ${err.message}`);
         }
       } else {
         setCurrentUserRole(null);
@@ -2204,7 +2251,7 @@ ${formattedHistory}
       const ai = new GoogleGenAI({ apiKey });
       
       const session = await ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-flash-latest",
         callbacks: {
           onopen: () => {
             setIsActive(true);
@@ -2705,7 +2752,11 @@ ${formattedHistory}
   }
 
   if (isAuthorizedDev && isAdminViewActive) {
-    return <AdminDashboard onLogout={async () => { await signOut(auth); setIsDevUnlocked(false); setIsAdminViewActive(false); }} onClose={() => setIsAdminViewActive(false)} />;
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <AdminDashboard onLogout={async () => { await signOut(auth); setIsDevUnlocked(false); setIsAdminViewActive(false); }} onClose={() => setIsAdminViewActive(false)} />
+      </Suspense>
+    );
   }
 
   if (currentUser && userProfile?.suspended === true) {
@@ -3133,12 +3184,14 @@ ${formattedHistory}
 
       <AnimatePresence>
         {showPremiumModal && (
-          <PremiumUpgradeModal 
-            onClose={() => setShowPremiumModal(false)}
-            userProfile={userProfile}
-            currentUser={currentUser}
-            message={premiumModalMessage}
-          />
+          <Suspense fallback={null}>
+            <PremiumUpgradeModal 
+              onClose={() => setShowPremiumModal(false)}
+              userProfile={userProfile}
+              currentUser={currentUser}
+              message={premiumModalMessage}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -3359,321 +3412,323 @@ ${formattedHistory}
 
       {/* Tab Screen Contents */}
       <div className={`w-full mx-auto z-10 relative flex-1 ${activeTab === 'messages' ? 'max-w-none px-0 pt-0 pb-0' : `max-w-7xl px-4 sm:px-6 pt-2 ${activeTab === 'home' ? 'pb-32' : 'pb-6'}`} safe-bottom`}>
-        <AnimatePresence mode="wait">
-          {activeTab === 'stories' && (
-            <motion.div
-              key="tab-stories"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <StoriesPage />
-            </motion.div>
-          )}
+        <Suspense fallback={<LoadingFallback />}>
+          <AnimatePresence mode="wait">
+            {activeTab === 'stories' && (
+              <motion.div
+                key="tab-stories"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <StoriesPage />
+              </motion.div>
+            )}
 
-          {activeTab === 'followers' && (
-            <motion.div
-              key="tab-followers"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <FollowersPage />
-            </motion.div>
-          )}
+            {activeTab === 'followers' && (
+              <motion.div
+                key="tab-followers"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <FollowersPage />
+              </motion.div>
+            )}
 
-          {activeTab === 'home' && (
-            <motion.div
-              key="tab-home"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <HomeDashboard
-                currentUser={currentUser}
-                setActiveTab={setActiveTab as any}
-                isVoiceActive={isActive}
-                toggleXpro={toggleXpro}
-                routines={routines}
-                language={userProfile?.language || 'English'}
-                handleToggleCompleted={handleToggleCompleted}
-                toggleDrawer={() => setIsDrawerOpen(true)}
-                isAuthorizedDev={isAuthorizedDev}
-                isAdminViewActive={isAdminViewActive}
-                onToggleAdmin={() => setIsAdminViewActive(!isAdminViewActive)}
-                setDeviceUtility={setDeviceUtility}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'home' && (
+              <motion.div
+                key="tab-home"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <HomeDashboard
+                  currentUser={currentUser}
+                  setActiveTab={setActiveTab as any}
+                  isVoiceActive={isActive}
+                  toggleXpro={toggleXpro}
+                  routines={routines}
+                  language={userProfile?.language || 'English'}
+                  handleToggleCompleted={handleToggleCompleted}
+                  toggleDrawer={() => setIsDrawerOpen(true)}
+                  isAuthorizedDev={isAuthorizedDev}
+                  isAdminViewActive={isAdminViewActive}
+                  onToggleAdmin={() => setIsAdminViewActive(!isAdminViewActive)}
+                  setDeviceUtility={setDeviceUtility}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'image_studio' && (
-            <motion.div
-              key="tab-image-studio"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <AIImageStudio
-                theme={theme}
-                addSystemLog={addSystemLog}
-                currentUser={currentUser}
-                setActiveTab={setActiveTab as any}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'image_studio' && (
+              <motion.div
+                key="tab-image-studio"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <AIImageStudio
+                  theme={theme}
+                  addSystemLog={addSystemLog}
+                  currentUser={currentUser}
+                  setActiveTab={setActiveTab as any}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'routine' && (
-            <motion.div
-              key="tab-routine"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <StudyRoutine
-                currentUser={currentUser}
-                language={userProfile?.language || 'English'}
-                addSystemLog={addSystemLog}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'routine' && (
+              <motion.div
+                key="tab-routine"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <StudyRoutine
+                  currentUser={currentUser}
+                  language={userProfile?.language || 'English'}
+                  addSystemLog={addSystemLog}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'learn' && (
-            <motion.div
-              key="tab-learn"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <LearnCenter theme={theme} addSystemLog={addSystemLog} currentUser={currentUser} userProfile={userProfile} />
-            </motion.div>
-          )}
+            {activeTab === 'learn' && (
+              <motion.div
+                key="tab-learn"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <LearnCenter theme={theme} addSystemLog={addSystemLog} currentUser={currentUser} userProfile={userProfile} />
+              </motion.div>
+            )}
 
-          {activeTab === 'chat' && (
-            <motion.div
-              key="tab-chat"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <AIChatRoom
-                theme={theme}
-                chatHistory={chatHistory}
-                addSystemLog={addSystemLog}
-                setActiveTab={setActiveTab}
-                currentUser={currentUser}
-                userProfile={userProfile}
-                setShowPremiumModal={setShowPremiumModal}
-                setPremiumModalMessage={setPremiumModalMessage}
-                onExecuteDeviceAction={handleExecuteDeviceAction}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'chat' && (
+              <motion.div
+                key="tab-chat"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <AIChatRoom
+                  theme={theme}
+                  chatHistory={chatHistory}
+                  addSystemLog={addSystemLog}
+                  setActiveTab={setActiveTab}
+                  currentUser={currentUser}
+                  userProfile={userProfile}
+                  setShowPremiumModal={setShowPremiumModal}
+                  setPremiumModalMessage={setPremiumModalMessage}
+                  onExecuteDeviceAction={handleExecuteDeviceAction}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'messages' && (
-            <motion.div
-              key="tab-messages"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <LiveMessaging
-                theme={theme}
-                currentUser={currentUser}
-                userProfile={userProfile}
-                setShowPremiumModal={setShowPremiumModal}
-                setPremiumModalMessage={setPremiumModalMessage}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'messages' && (
+              <motion.div
+                key="tab-messages"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <LiveMessaging
+                  theme={theme}
+                  currentUser={currentUser}
+                  userProfile={userProfile}
+                  setShowPremiumModal={setShowPremiumModal}
+                  setPremiumModalMessage={setPremiumModalMessage}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'profile' && (
-            <motion.div
-              key="tab-profile"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-              className="w-full max-w-2xl mx-auto py-8"
-            >
-              <div className="bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-[40px] overflow-hidden shadow-2xl relative">
-                <div className="p-8 flex flex-col items-center">
-                  {/* Centered Profile Avatar */}
-                  <div className="relative mb-8">
-                    <motion.div 
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="w-32 h-32 rounded-full border-2 border-white/10 p-1 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative"
-                    >
-                      <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center font-bold text-4xl bg-gradient-to-br from-indigo-500/10 via-slate-800 to-purple-500/10">
-                        {userProfile?.customAvatarUrl ? (
-                          <img src={userProfile.customAvatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                        ) : (
-                          <span className="select-none text-white/80">{(userProfile?.fullName || currentUser?.displayName || 'S').charAt(0).toUpperCase()}</span>
-                        )}
-                      </div>
-                      {userProfile?.isPremium && (
-                        <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-black p-2 rounded-full shadow-lg border-4 border-[#0b0825] animate-pulse">
-                          <Sparkles size={18} fill="currentColor" />
+            {activeTab === 'profile' && (
+              <motion.div
+                key="tab-profile"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+                className="w-full max-w-2xl mx-auto py-8"
+              >
+                <div className="bg-slate-900/40 backdrop-blur-xl border border-white/10 rounded-[40px] overflow-hidden shadow-2xl relative">
+                  <div className="p-8 flex flex-col items-center">
+                    {/* Centered Profile Avatar */}
+                    <div className="relative mb-8">
+                      <motion.div 
+                        initial={{ scale: 0.8, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="w-32 h-32 rounded-full border-2 border-white/10 p-1 shadow-[0_0_50px_rgba(99,102,241,0.15)] relative"
+                      >
+                        <div className="w-full h-full rounded-full overflow-hidden flex items-center justify-center font-bold text-4xl bg-gradient-to-br from-indigo-500/10 via-slate-800 to-purple-500/10">
+                          {userProfile?.customAvatarUrl ? (
+                            <img src={userProfile.customAvatarUrl} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <span className="select-none text-white/80">{(userProfile?.fullName || currentUser?.displayName || 'S').charAt(0).toUpperCase()}</span>
+                          )}
                         </div>
-                      )}
-                    </motion.div>
-                  </div>
-
-                  {/* Profile Identity */}
-                  <div className="text-center space-y-1 mb-8">
-                    <div className="flex items-center justify-center gap-2">
-                      <h3 className="text-2xl font-black text-white tracking-tight">{userProfile?.fullName || currentUser?.displayName || 'Scholar'}</h3>
-                      {userProfile?.isPremium && <CheckCircle size={20} className="text-blue-400 fill-blue-400/20" />}
+                        {userProfile?.isPremium && (
+                          <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-black p-2 rounded-full shadow-lg border-4 border-[#0b0825] animate-pulse">
+                            <Sparkles size={18} fill="currentColor" />
+                          </div>
+                        )}
+                      </motion.div>
                     </div>
-                    <div className="flex flex-col items-center gap-1.5">
-                      <p className="text-indigo-400 font-bold text-sm">@{userProfile?.username || 'operator'}</p>
-                      <div className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase rounded-full tracking-widest">
-                        Operator Profile
+
+                    {/* Profile Identity */}
+                    <div className="text-center space-y-1 mb-8">
+                      <div className="flex items-center justify-center gap-2">
+                        <h3 className="text-2xl font-black text-white tracking-tight">{userProfile?.fullName || currentUser?.displayName || 'Scholar'}</h3>
+                        {userProfile?.isPremium && <CheckCircle size={20} className="text-blue-400 fill-blue-400/20" />}
+                      </div>
+                      <div className="flex flex-col items-center gap-1.5">
+                        <p className="text-indigo-400 font-bold text-sm">@{userProfile?.username || 'operator'}</p>
+                        <div className="px-2.5 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase rounded-full tracking-widest">
+                          Operator Profile
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Stats Row Placeholder (Real stats can be fetched if needed, but for now we'll use consistent spacing) */}
-                  <div className="flex items-center justify-between w-full max-w-sm border-y border-white/5 py-8 mb-8">
-                    <div className="flex-1 text-center flex flex-col items-center gap-1">
-                      <span className="text-white font-black text-xl leading-none">0</span>
-                      <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Friends</span>
+                    {/* Stats Row Placeholder (Real stats can be fetched if needed, but for now we'll use consistent spacing) */}
+                    <div className="flex items-center justify-between w-full max-w-sm border-y border-white/5 py-8 mb-8">
+                      <div className="flex-1 text-center flex flex-col items-center gap-1">
+                        <span className="text-white font-black text-xl leading-none">0</span>
+                        <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Friends</span>
+                      </div>
+                      <div className="h-8 w-px bg-white/5" />
+                      <div className="flex-1 text-center flex flex-col items-center gap-1">
+                        <span className="text-white font-black text-xl leading-none">0</span>
+                        <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Followers</span>
+                      </div>
+                      <div className="h-8 w-px bg-white/5" />
+                      <div className="flex-1 text-center flex flex-col items-center gap-1">
+                        <span className="text-white font-black text-xl leading-none">0</span>
+                        <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Following</span>
+                      </div>
                     </div>
-                    <div className="h-8 w-px bg-white/5" />
-                    <div className="flex-1 text-center flex flex-col items-center gap-1">
-                      <span className="text-white font-black text-xl leading-none">0</span>
-                      <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Followers</span>
-                    </div>
-                    <div className="h-8 w-px bg-white/5" />
-                    <div className="flex-1 text-center flex flex-col items-center gap-1">
-                      <span className="text-white font-black text-xl leading-none">0</span>
-                      <span className="text-gray-500 text-[10px] font-bold uppercase tracking-[0.2em] ml-[0.2em]">Following</span>
-                    </div>
-                  </div>
 
-                  {/* Bio */}
-                  <div className="w-full mb-10 text-center px-4">
-                    {userProfile?.bio ? (
-                      <p className="text-gray-300 text-sm leading-relaxed max-w-[320px] mx-auto italic font-medium opacity-90">
-                        "{userProfile.bio}"
-                      </p>
-                    ) : (
-                      <p className="text-gray-600 text-xs italic tracking-wide">Update your bio in settings.</p>
-                    )}
-                  </div>
+                    {/* Bio */}
+                    <div className="w-full mb-10 text-center px-4">
+                      {userProfile?.bio ? (
+                        <p className="text-gray-300 text-sm leading-relaxed max-w-[320px] mx-auto italic font-medium opacity-90">
+                          "{userProfile.bio}"
+                        </p>
+                      ) : (
+                        <p className="text-gray-600 text-xs italic tracking-wide">Update your bio in settings.</p>
+                      )}
+                    </div>
 
-                  <div className="flex flex-col w-full max-w-sm gap-3">
-                    <button 
-                      onClick={() => setActiveTab('settings')}
-                      className="w-full py-4 bg-white text-black hover:bg-gray-100 rounded-3xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2.5 shadow-xl shadow-white/5"
-                    >
-                      <Settings size={20} />
-                      Edit Academic Records
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab('home')}
-                      className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-3xl font-black text-sm transition-all active:scale-95"
-                    >
-                      Return to Dashboard
-                    </button>
+                    <div className="flex flex-col w-full max-w-sm gap-3">
+                      <button 
+                        onClick={() => setActiveTab('settings')}
+                        className="w-full py-4 bg-white text-black hover:bg-gray-100 rounded-3xl font-black text-sm transition-all active:scale-95 flex items-center justify-center gap-2.5 shadow-xl shadow-white/5"
+                      >
+                        <Settings size={20} />
+                        Edit Academic Records
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab('home')}
+                        className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-3xl font-black text-sm transition-all active:scale-95"
+                      >
+                        Return to Dashboard
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </motion.div>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'settings' && (
-            <motion.div
-              key="tab-settings"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <UserProfileSettings
-                currentUser={currentUser}
-                userProfile={userProfile}
-                onUpdateProfile={(updatedData) => setUserProfile(updatedData)}
-                theme={theme}
-                currentTheme={currentTheme}
-                setCurrentTheme={setCurrentTheme}
-                onNavigateHome={() => setActiveTab('home')}
-                onLogout={async () => {
-                  setIsDevUnlocked(false);
-                  localStorage.removeItem('sweety_dev_unlocked');
-                  addSystemLog(`[SECURITY] Sign-out requested by operator.`);
-                  try {
-                    await signOut(auth);
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-                addSystemLog={addSystemLog}
-                isAdmin={isAuthorizedDev}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'settings' && (
+              <motion.div
+                key="tab-settings"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <UserProfileSettings
+                  currentUser={currentUser}
+                  userProfile={userProfile}
+                  onUpdateProfile={(updatedData) => setUserProfile(updatedData)}
+                  theme={theme}
+                  currentTheme={currentTheme}
+                  setCurrentTheme={setCurrentTheme}
+                  onNavigateHome={() => setActiveTab('home')}
+                  onLogout={async () => {
+                    setIsDevUnlocked(false);
+                    localStorage.removeItem('sweety_dev_unlocked');
+                    addSystemLog(`[SECURITY] Sign-out requested by operator.`);
+                    try {
+                      await signOut(auth);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                  addSystemLog={addSystemLog}
+                  isAdmin={isAuthorizedDev}
+                />
+              </motion.div>
+            )}
 
-          
-          {activeTab === 'search' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <SearchPage />
-            </motion.div>
-          )}
-          {activeTab === 'announcements' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Announcements />
-            </motion.div>
-          )}
-          {activeTab === 'notifications' && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-              <Notifications />
-            </motion.div>
-          )}
+            
+            {activeTab === 'search' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <SearchPage />
+              </motion.div>
+            )}
+            {activeTab === 'announcements' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Announcements />
+              </motion.div>
+            )}
+            {activeTab === 'notifications' && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <Notifications />
+              </motion.div>
+            )}
 
-          {activeTab === 'friends' && (
-            <motion.div
-              key="tab-friends"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-              className="h-full"
-            >
-              <FriendsPage 
-                currentUser={currentUser} 
-                onOpenProfile={(id: string) => {
-                  setSelectedProfileUserId(id);
-                  setIsUserProfileModalOpen(true);
-                }}
-                onStartChat={() => {
-                  setActiveTab('messages');
-                }}
-              />
-            </motion.div>
-          )}
+            {activeTab === 'friends' && (
+              <motion.div
+                key="tab-friends"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+                className="h-full"
+              >
+                <FriendsPage 
+                  currentUser={currentUser} 
+                  onOpenProfile={(id: string) => {
+                    setSelectedProfileUserId(id);
+                    setIsUserProfileModalOpen(true);
+                  }}
+                  onStartChat={() => {
+                    setActiveTab('messages');
+                  }}
+                />
+              </motion.div>
+            )}
 
-          {activeTab === 'about' && (
-            <motion.div
-              key="tab-about"
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.25 }}
-            >
-              <AboutUs isAdmin={isAuthorizedDev} addSystemLog={addSystemLog} />
-            </motion.div>
-          )}
+            {activeTab === 'about' && (
+              <motion.div
+                key="tab-about"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.25 }}
+              >
+                <AboutUs isAdmin={isAuthorizedDev} addSystemLog={addSystemLog} />
+              </motion.div>
+            )}
 
-        </AnimatePresence>
+          </AnimatePresence>
+        </Suspense>
       </div>
 
       {/* Main Visual Container */}
@@ -4230,7 +4285,7 @@ ${formattedHistory}
             id="nav-learn"
             onClick={() => setActiveTab('learn')}
             className={`flex flex-col items-center gap-1 flex-1 py-1 px-2.5 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'learn' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              (activeTab as string) === 'learn' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <BookOpen size={18} />
@@ -4241,7 +4296,7 @@ ${formattedHistory}
             id="nav-friends"
             onClick={() => setActiveTab('friends')}
             className={`flex flex-col items-center gap-1 flex-1 py-1 px-2.5 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'friends' ? 'text-indigo-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              (activeTab as string) === 'friends' ? 'text-indigo-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <Users size={18} />
@@ -4252,7 +4307,7 @@ ${formattedHistory}
             id="nav-image-studio"
             onClick={() => setActiveTab('image_studio')}
             className={`flex flex-col items-center gap-1 flex-1 py-1 px-2.5 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'image_studio' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              (activeTab as string) === 'image_studio' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <Palette size={18} />
@@ -4263,7 +4318,7 @@ ${formattedHistory}
             id="nav-chat"
             onClick={() => setActiveTab('chat')}
             className={`flex flex-col items-center gap-1 flex-1 py-1 px-2.5 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'chat' ? 'text-indigo-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              (activeTab as string) === 'chat' ? 'text-indigo-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <MessageSquare size={18} />
@@ -4277,7 +4332,7 @@ ${formattedHistory}
               setInAppNotification(null);
             }}
             className={`flex flex-col items-center gap-1 flex-1 py-1 px-2.5 rounded-2xl transition-all cursor-pointer relative ${
-              activeTab === 'messages' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
+              (activeTab as string) === 'messages' ? 'text-pink-400 bg-white/5' : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <MessageCircle size={18} />
@@ -4361,16 +4416,20 @@ ${formattedHistory}
           </motion.div>
         )}
       </AnimatePresence>
-      <NavigationDrawer
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        onNavigate={(tab) => setActiveTab(tab as any)}
-        onLogout={async () => { await signOut(auth); setIsDevUnlocked(false); }}
-        isAuthorizedDev={isAuthorizedDev}
-        isAdminViewActive={isAdminViewActive}
-        onToggleAdmin={() => setIsAdminViewActive(!isAdminViewActive)}
-      />
-      <CallManager />
+      <Suspense fallback={null}>
+        <NavigationDrawer
+          isOpen={isDrawerOpen}
+          onClose={() => setIsDrawerOpen(false)}
+          onNavigate={(tab) => setActiveTab(tab as any)}
+          onLogout={async () => { await signOut(auth); setIsDevUnlocked(false); }}
+          isAuthorizedDev={isAuthorizedDev}
+          isAdminViewActive={isAdminViewActive}
+          onToggleAdmin={() => setIsAdminViewActive(!isAdminViewActive)}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CallManager />
+      </Suspense>
       <DeviceUtilityOverlay utility={deviceUtility} onClose={() => setDeviceUtility({ type: null })} />
       
       {selectedProfileUserId && (
@@ -4393,10 +4452,12 @@ ${formattedHistory}
       
       <AnimatePresence>
         {pendingUpdate && (
-          <AppUpdateOverlay 
-            update={pendingUpdate} 
-            onClose={() => setPendingUpdate(null)} 
-          />
+          <Suspense fallback={null}>
+            <AppUpdateOverlay 
+              update={pendingUpdate} 
+              onClose={() => setPendingUpdate(null)} 
+            />
+          </Suspense>
         )}
       </AnimatePresence>
     </div>

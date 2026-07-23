@@ -30,7 +30,7 @@ export function FileManager() {
     
     try {
       const path = `uploads/${Date.now()}_${file.name}`;
-      const url = await uploadFile(file, path, (p) => setProgress(p));
+      const url = await uploadFile(file, path, { onProgress: (p) => setProgress(p), compressImages: true });
       
       await addDoc(collection(db, 'admin_files'), {
         name: file.name,

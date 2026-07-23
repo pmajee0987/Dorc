@@ -25,7 +25,14 @@ export function useLiveSettings() {
     privacyPolicy: '',
     termsAndConditions: '',
     notesBannerUrl: '',
-    announcementBannerUrl: ''
+    announcementBannerUrl: '',
+    customGeminiApiKey: '',
+    phone: '',
+    devName: '',
+    website: '',
+    copyright: '',
+    email: '',
+    description: ''
   });
 
   useEffect(() => {

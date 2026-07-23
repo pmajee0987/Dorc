@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, storage } from '../../firebase';
 import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import { uploadFile } from '../../lib/storageHelper';
 import { Megaphone, Plus, Trash2, Edit3, X, Image as ImageIcon, Video, FileText, Link as LinkIcon, Clock, AlertTriangle, CheckCircle2, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -56,26 +56,13 @@ export function AnnouncementManager() {
     setUploading(type);
     setUploadProgress(0);
     try {
-      const storageRef = ref(storage, `announcements/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-      
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-        },
-        (error) => {
-          console.error(error);
-          setUploading(null);
-          setUploadProgress(0);
-        },
-        async () => {
-          const url = await getDownloadURL(uploadTask.snapshot.ref);
-          setForm(prev => ({ ...prev, [`${type}Url`]: url }));
-          setUploading(null);
-          setUploadProgress(100);
-        }
-      );
+      const url = await uploadFile(file, `announcements/${Date.now()}_${file.name}`, {
+        onProgress: (p) => setUploadProgress(p),
+        compressImages: type === 'image'
+      });
+      setForm(prev => ({ ...prev, [`${type}Url`]: url }));
+      setUploading(null);
+      setUploadProgress(100);
     } catch (err) {
       console.error(err);
       setUploading(null);

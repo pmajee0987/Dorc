@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../../firebase';
 import { collection, onSnapshot, doc, addDoc, updateDoc, deleteDoc, query, orderBy, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
+import { uploadFile } from '../../lib/storageHelper';
 import { Image as ImageIcon, Plus, Trash2, Edit3, X, Zap, Calendar, ExternalLink, RefreshCw, Smartphone, CheckCircle2, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import type { UploadTask } from 'firebase/storage';
 
 // Banner Manager Component
 export function BannerManager() {
@@ -12,6 +13,8 @@ export function BannerManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
     imageUrl: '',
+    videoUrl: '',
+    mediaType: 'image' as 'image' | 'video',
     gradient: 'from-pink-500 to-rose-500',
     buttonText: 'Join Now',
     animationType: 'pulse',
@@ -21,6 +24,7 @@ export function BannerManager() {
   });
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const currentUploadTask = useRef<UploadTask | null>(null);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'banners'), (snap) => {
@@ -32,37 +36,26 @@ export function BannerManager() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
+    const isVideo = file.type.startsWith('video/');
     setUploading(true);
     setUploadProgress(0);
     try {
-      const storageRef = ref(storage, `banners/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
+      const url = await uploadFile(file, `banners/${Date.now()}_${file.name}`, {
+        onProgress: (p) => setUploadProgress(p),
+        onTaskReady: (task) => { currentUploadTask.current = task; },
+        compressImages: !isVideo
+      });
       
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-        },
-        (error) => {
-          console.error(error);
-          alert('Upload failed: ' + error.message);
-          setUploading(false);
-          setUploadProgress(0);
-        },
-        async () => {
-          try {
-            const url = await getDownloadURL(uploadTask.snapshot.ref);
-            setForm(prev => ({ ...prev, imageUrl: url }));
-            setUploading(false);
-            setUploadProgress(100);
-            alert('Image uploaded successfully!');
-          } catch (err: any) {
-            console.error(err);
-            alert('Failed to get download URL: ' + err.message);
-            setUploading(false);
-          }
-        }
-      );
+      if (isVideo) {
+        setForm(prev => ({ ...prev, videoUrl: url, mediaType: 'video', imageUrl: '' }));
+      } else {
+        setForm(prev => ({ ...prev, imageUrl: url, mediaType: 'image', videoUrl: '' }));
+      }
+      
+      setUploading(false);
+      setUploadProgress(100);
+      alert('Media uploaded successfully!');
     } catch (err: any) { 
       console.error(err); 
       alert('Upload failed: ' + (err.message || 'Unknown error'));
@@ -93,7 +86,11 @@ export function BannerManager() {
         {banners.map(item => (
           <div key={item.id} className="bg-slate-900 border border-white/10 rounded-[2.5rem] overflow-hidden group">
             <div className={`h-48 relative overflow-hidden bg-gradient-to-br ${item.gradient}`}>
-              {item.imageUrl && <img src={item.imageUrl} alt="" className="w-full h-full object-cover mix-blend-overlay opacity-80" />}
+              {item.mediaType === 'video' ? (
+                <video src={item.videoUrl} autoPlay muted loop className="w-full h-full object-cover mix-blend-overlay opacity-60" />
+              ) : (
+                item.imageUrl && <img src={item.imageUrl} alt="" className="w-full h-full object-cover mix-blend-overlay opacity-80" />
+              )}
               <div className="absolute inset-0 p-8 flex flex-col justify-end">
                 <div className="text-white text-xs font-black uppercase tracking-widest mb-1 opacity-70">Featured Offer</div>
                 <h3 className="text-2xl font-black text-white">{item.buttonText}</h3>
@@ -126,8 +123,14 @@ export function BannerManager() {
               <form onSubmit={handleSubmit} className="space-y-6 overflow-y-auto pr-2 scrollbar-thin">
                 <div className="space-y-4">
                   <div className="p-8 border-2 border-dashed border-white/10 rounded-3xl flex flex-col items-center gap-4 hover:bg-white/5 transition-all cursor-pointer group relative overflow-hidden">
-                    <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} />
-                    {form.imageUrl ? <img src={form.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" /> : (
+                    <input type="file" accept="image/*,video/*" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleFileUpload} />
+                    {form.imageUrl || form.videoUrl ? (
+                      form.mediaType === 'video' ? (
+                        <video src={form.videoUrl} autoPlay muted loop className="w-full h-32 object-cover rounded-2xl" />
+                      ) : (
+                        <img src={form.imageUrl} alt="" className="w-full h-32 object-cover rounded-2xl" />
+                      )
+                    ) : (
                        <>
                         {uploading ? (
                           <div className="flex flex-col items-center gap-2">
@@ -235,34 +238,13 @@ export function UpdateManager() {
     setUploadProgress(0);
 
     try {
-      const storageRef = ref(storage, `updates/${Date.now()}_${file.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-        }, 
-        (error) => {
-          console.error(error);
-          alert('Upload failed: ' + error.message);
-          setUploading(false);
-          setUploadProgress(0);
-        }, 
-        async () => {
-          try {
-            const url = await getDownloadURL(uploadTask.snapshot.ref);
-            setForm(prev => ({ ...prev, apkUrl: url, fileSize: file.size }));
-            setUploading(false);
-            setUploadProgress(100);
-            alert('Package uploaded successfully!');
-          } catch (err: any) {
-            console.error(err);
-            alert('Failed to get download URL: ' + err.message);
-            setUploading(false);
-          }
-        }
-      );
+      const url = await uploadFile(file, `updates/${Date.now()}_${file.name}`, {
+        onProgress: (p) => setUploadProgress(p)
+      });
+      setForm(prev => ({ ...prev, apkUrl: url, fileSize: file.size }));
+      setUploading(false);
+      setUploadProgress(100);
+      alert('Package uploaded successfully!');
     } catch (err: any) { 
       console.error(err); 
       alert('Upload failed: ' + (err.message || 'Unknown error'));
